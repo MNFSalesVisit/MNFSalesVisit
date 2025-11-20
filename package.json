@@ -1,14 +1,24 @@
 {
   "name": "sales-visit-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "React Sales Visit App with GPS tracking and Google Apps Script backend",
   "type": "module",
+  "author": "MNF Sales",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MNFSalesVisit/MNFSalesVisit.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "vercel-build": "vite build",
+    "preview": "vite preview",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "lint:fix": "eslint . --ext js,jsx --fix",
+    "clean": "rm -rf dist node_modules",
+    "fresh": "npm run clean && npm install"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -26,5 +36,16 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
     "vite": "^5.0.0"
-  }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "react",
+    "vite",
+    "sales",
+    "tracking",
+    "gps",
+    "google-apps-script"
+  ]
 }
