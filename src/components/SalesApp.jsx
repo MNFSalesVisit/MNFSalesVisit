@@ -14,6 +14,7 @@ const SalesApp = () => {
   const [isDark, setIsDark] = useState(false);
   const [selfieData, setSelfieData] = useState("");
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0 });
   
   // Form state
@@ -152,20 +153,85 @@ const SalesApp = () => {
     }));
   };
 
-  // Auto-capture location
+  // Auto-capture location with enhanced accuracy
   const autoCaptureLocation = () => {
     return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setCoords({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude
-          });
-          resolve();
-        },
-        (err) => reject("Location failed"),
-        { enableHighAccuracy: true, timeout: 3000 }
-      );
+      console.log("Starting enhanced GPS capture...");
+      
+      if (!navigator.geolocation) {
+        console.error("Geolocation not supported");
+        reject("GPS not supported");
+        return;
+      }
+
+      let attemptCount = 0;
+      const maxAttempts = 3;
+      let bestAccuracy = Infinity;
+      let bestPosition = null;
+
+      const tryGetPosition = () => {
+        attemptCount++;
+        console.log(`GPS attempt ${attemptCount} of ${maxAttempts}`);
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const accuracy = pos.coords.accuracy;
+            console.log(`GPS attempt ${attemptCount} - Accuracy: ${accuracy}m, Lat: ${pos.coords.latitude}, Lng: ${pos.coords.longitude}`);
+
+            // Keep track of the most accurate position
+            if (accuracy < bestAccuracy) {
+              bestAccuracy = accuracy;
+              bestPosition = pos;
+            }
+
+            // If we get good accuracy (under 20m) or we've tried all attempts
+            if (accuracy <= 20 || attemptCount >= maxAttempts) {
+              if (bestPosition) {
+                const newCoords = {
+                  latitude: bestPosition.coords.latitude,
+                  longitude: bestPosition.coords.longitude
+                };
+                console.log(`GPS capture complete - Best accuracy: ${bestAccuracy}m, Coordinates:`, newCoords);
+                setCoords(newCoords);
+                resolve(newCoords);
+              } else {
+                reject("No GPS position obtained");
+              }
+            } else {
+              // Try again for better accuracy
+              setTimeout(() => tryGetPosition(), 1000);
+            }
+          },
+          (err) => {
+            console.error(`GPS attempt ${attemptCount} failed:`, err.message, err.code);
+            
+            if (attemptCount >= maxAttempts) {
+              if (bestPosition) {
+                // Use best available position even if not ideal
+                const newCoords = {
+                  latitude: bestPosition.coords.latitude,
+                  longitude: bestPosition.coords.longitude
+                };
+                console.log(`GPS fallback - Using best available accuracy: ${bestAccuracy}m, Coordinates:`, newCoords);
+                setCoords(newCoords);
+                resolve(newCoords);
+              } else {
+                reject("Location failed after " + maxAttempts + " attempts: " + err.message);
+              }
+            } else {
+              // Try again
+              setTimeout(() => tryGetPosition(), 1500);
+            }
+          },
+          { 
+            enableHighAccuracy: true, 
+            timeout: 15000,
+            maximumAge: 0  // Don't use cached position
+          }
+        );
+      };
+
+      tryGetPosition();
     });
   };
 
@@ -173,15 +239,31 @@ const SalesApp = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (isSubmitting) {
+      return; // Prevent double submission
+    }
+    
     if (!selfieData) {
       alert("Capture selfie");
       return;
     }
 
+    setIsSubmitting(true);
+
     try {
-      await autoCaptureLocation();
+      const capturedCoords = await autoCaptureLocation();
+      console.log("Location captured successfully:", capturedCoords);
     } catch (e) {
-      alert("Enable GPS to continue.");
+      console.error("Location capture failed:", e);
+      alert("GPS location required. Please enable location access and ensure you're in an area with good GPS signal. Error: " + e);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Validate that coordinates were actually captured
+    if (!coords.latitude || !coords.longitude) {
+      alert("GPS coordinates not captured. Please ensure location access is enabled and try again.");
+      setIsSubmitting(false);
       return;
     }
 
@@ -225,6 +307,12 @@ const SalesApp = () => {
       selfie: selfieData
     };
 
+    console.log("Submitting record with coordinates:", {
+      longitude: coords.longitude,
+      latitude: coords.latitude,
+      coordsState: coords
+    });
+
     try {
       await apiService.saveVisit(record);
       
@@ -248,6 +336,8 @@ const SalesApp = () => {
     } catch (error) {
       alert("Submission failed. Please try again.");
       console.error(error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -456,10 +546,32 @@ const SalesApp = () => {
               )}
             </div>
 
-            <button type="submit" className="btn btn-danger w-100 mt-4">
-              Submit Visit
+            <button 
+              type="submit" 
+              className="btn btn-danger w-100 mt-4"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Submitting...
+                </>
+              ) : (
+                'Submit Visit'
+              )}
             </button>
           </form>
+          
+          {/* Footer */}
+          <div className="mt-4 text-center small text-muted">
+            <div className="mb-1">
+              <a href="#" className="text-decoration-none text-muted">Terms & Conditions</a> | 
+              <a href="#" className="text-decoration-none text-muted ms-1">Privacy Policy</a>
+            </div>
+            <div style={{ fontSize: '11px' }}>
+              © 2025 MNF Sales. All rights reserved.
+            </div>
+          </div>
         </div>
       </div>
 

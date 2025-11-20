@@ -19,7 +19,7 @@ const AdminDashboard = () => {
   // State management
   const [currentUser, setCurrentUser] = useState(null);
   const [allVisits, setAllVisits] = useState([]);
-  const [summaryData, setSummaryData] = useState({ users: [], regions: [] });
+  const [summaryData, setSummaryData] = useState({ users: [], regions: [], timeseries: { daily: [], weekly: [], monthly: [] } });
   const [totals, setTotals] = useState({ visits: 0, sold: 0, cartons: 0 });
   const [mapCenter, setMapCenter] = useState([-1.286389, 36.817223]); // Nairobi
   const [selectedVisit, setSelectedVisit] = useState(null);
@@ -29,7 +29,8 @@ const AdminDashboard = () => {
   const [filters, setFilters] = useState({
     year: new Date().getFullYear(),
     month: "",
-    type: "monthly"
+    type: "monthly",
+    salesperson: ""
   });
 
   // Auth check and initial data load
@@ -69,7 +70,8 @@ const AdminDashboard = () => {
     const params = {
       type: filters.type,
       month: filters.month ? Number(filters.month) : null,
-      year: Number(filters.year)
+      year: Number(filters.year),
+      salesperson: filters.salesperson || null
     };
 
     try {
@@ -96,12 +98,35 @@ const AdminDashboard = () => {
       if (!visit.timestamp) return false;
       const visitDate = new Date(visit.timestamp);
       
+      // Filter by year and month
       if (filters.month) {
-        return (visitDate.getMonth() + 1) === Number(filters.month) && 
-               visitDate.getFullYear() === Number(filters.year);
+        const monthMatch = (visitDate.getMonth() + 1) === Number(filters.month) && 
+                          visitDate.getFullYear() === Number(filters.year);
+        if (!monthMatch) return false;
+      } else {
+        if (visitDate.getFullYear() !== Number(filters.year)) return false;
       }
-      return visitDate.getFullYear() === Number(filters.year);
+      
+      // Filter by salesperson if selected
+      if (filters.salesperson) {
+        const matchesName = visit.name && visit.name.toLowerCase().includes(filters.salesperson.toLowerCase());
+        const matchesID = visit.nationalID && visit.nationalID.toLowerCase().includes(filters.salesperson.toLowerCase());
+        if (!matchesName && !matchesID) return false;
+      }
+      
+      return true;
     });
+  };
+
+  // Generate unique salespeople list
+  const getSalespeopleOptions = () => {
+    const uniqueNames = new Set();
+    allVisits.forEach(visit => {
+      if (visit.name) {
+        uniqueNames.add(visit.name);
+      }
+    });
+    return Array.from(uniqueNames).sort();
   };
 
   // Generate year options
@@ -159,6 +184,119 @@ const AdminDashboard = () => {
     URL.revokeObjectURL(url);
   };
 
+  // Download map as HTML
+  const downloadMapHTML = () => {
+    const filteredVisits = getFilteredVisits();
+    
+    if (filteredVisits.length === 0) {
+      alert("No visits to display on map");
+      return;
+    }
+
+    // Generate markers JavaScript
+    const markersJS = filteredVisits.map(visit => {
+      const lat = Number(visit.latitude);
+      const lng = Number(visit.longitude);
+      
+      if (!lat || !lng) return null;
+      
+      const popupContent = `
+        <div style="min-width: 180px; text-align: center;">
+          <strong>${visit.name || visit.nationalID}</strong><br />
+          <small>${visit.shopName || ''}</small><br />
+          <small>${visit.region || ''}</small><br />
+          <small>${new Date(visit.timestamp).toLocaleString()}</small>
+          ${visit.selfie ? `<br /><img src="${visit.selfie}" style="width: 160px; border-radius: 8px; display: block; margin: 6px auto;" alt="Visit selfie" />` : ''}
+          <div style="margin-top: 6px;">
+            <strong>Sold:</strong> ${visit.sold || 'No'}<br />
+            <strong>Cartons:</strong> ${visit.totalCartons || 0}
+            ${visit.reason ? `<br /><strong>Reason:</strong> ${visit.reason}` : ''}
+          </div>
+        </div>
+      `.replace(/\n/g, '').replace(/"/g, '\\"');
+      
+      return `L.marker([${lat}, ${lng}]).addTo(map).bindPopup("${popupContent}");`;
+    }).filter(marker => marker !== null).join('\n        ');
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Visits Map - ${new Date().toLocaleDateString()}</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        .header { 
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            z-index: 1000; 
+            background: white; 
+            padding: 10px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header h3 { margin: 0 0 5px 0; color: #333; }
+        .header p { margin: 0; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h3>Sales Visits Map</h3>
+        <p>Generated: ${new Date().toLocaleString()}</p>
+        <p>Total Visits: ${filteredVisits.length}</p>
+        ${filters.salesperson ? `<p>Salesperson: ${filters.salesperson}</p>` : ''}
+        ${filters.month ? `<p>Period: ${filters.month}/${filters.year}</p>` : `<p>Year: ${filters.year}</p>`}
+    </div>
+    <div id="map"></div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize map
+        var map = L.map('map').setView([${mapCenter[0]}, ${mapCenter[1]}], 11);
+        
+        // Add tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        
+        // Add markers
+        ${markersJS}
+        
+        // Fit bounds to markers if there are any
+        var group = new L.featureGroup();
+        map.eachLayer(function(layer) {
+            if (layer instanceof L.Marker) {
+                group.addLayer(layer);
+            }
+        });
+        if (group.getLayers().length > 0) {
+            map.fitBounds(group.getBounds().pad(0.1));
+        }
+    </script>
+</body>
+</html>`;
+
+    // Download the HTML file
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    
+    // Generate filename with current filters
+    const dateStr = new Date().toISOString().slice(0,10);
+    const filterStr = filters.salesperson ? `_${filters.salesperson.replace(/\s+/g, '_')}` : '';
+    const periodStr = filters.month ? `_${filters.month}-${filters.year}` : `_${filters.year}`;
+    
+    link.download = `sales_visits_map${filterStr}${periodStr}_${dateStr}.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // CSV safe string formatting
   const csvSafe = (value) => {
     if (value === null || value === undefined) return "";
@@ -187,85 +325,373 @@ const AdminDashboard = () => {
   const filteredVisits = getFilteredVisits();
 
   return (
-    <div style={{ padding: '12px', background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={{ 
+      padding: '24px', 
+      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)', 
+      minHeight: '100vh',
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+    }}>
+      <style>
+        {`
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+          
+          @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+          }
+          
+          .dashboard-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+          }
+          
+          .dashboard-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+          }
+          
+          .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 20px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+          }
+          
+          .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            transform: translate(30px, -30px);
+          }
+          
+          .stat-card:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.3);
+          }
+          
+          .btn-primary-custom {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+          }
+          
+          .btn-primary-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+            color: white;
+          }
+          
+          .btn-secondary-custom {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            color: #495057;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+          }
+          
+          .btn-secondary-custom:hover {
+            background: #e9ecef;
+            border-color: #dee2e6;
+            transform: translateY(-2px);
+            color: #495057;
+          }
+          
+          .modern-input {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 12px 16px;
+            transition: all 0.3s ease;
+            color: #495057;
+            font-weight: 500;
+          }
+          
+          .modern-input:focus {
+            background: white;
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+            color: #495057;
+          }
+          
+          .modern-input option {
+            background: white;
+            color: #495057;
+            padding: 8px;
+          }
+          
+          .data-table {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+          }
+          
+          .data-table thead th {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            color: #495057;
+            font-weight: 600;
+            padding: 16px;
+            border: none;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          
+          .data-table tbody td {
+            padding: 16px;
+            border: none;
+            border-bottom: 1px solid #f1f3f4;
+            color: #495057;
+            font-weight: 500;
+          }
+          
+          .data-table tbody tr:hover {
+            background: #f8f9fa;
+          }
+          
+          .data-table tbody tr:last-child td {
+            border-bottom: none;
+          }
+          
+          .section-title {
+            color: #2d3748;
+            font-weight: 700;
+            font-size: 20px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+          
+          .section-subtitle {
+            color: #718096;
+            font-size: 14px;
+            margin-bottom: 20px;
+          }
+          
+          .filter-label {
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: block;
+          }
+          
+          .map-container {
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            border: 4px solid white;
+          }
+          
+          .efficiency-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+          }
+          
+          .efficiency-high { background: #d4edda; color: #155724; }
+          .efficiency-medium { background: #fff3cd; color: #856404; }
+          .efficiency-low { background: #f8d7da; color: #721c24; }
+        `}
+      </style>
       {/* Header */}
-      <div className="d-flex align-items-center mb-3">
-        <h4 className="me-3">Admin Dashboard</h4>
-        <div className="ms-auto">
-          <button className="btn btn-outline-secondary" onClick={goBack}>
-            Back
-          </button>
-          <button className="btn btn-danger ms-2" onClick={handleLogout}>
-            Logout
-          </button>
+      <div className="dashboard-card p-4 mb-4" style={{
+        animation: 'slideUp 0.6s ease-out',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white'
+      }}>
+        <div className="d-flex align-items-center justify-content-between">
+          <div className="d-flex align-items-center">
+            <div style={{
+              width: '60px',
+              height: '60px',
+              background: 'rgba(255, 255, 255, 0.2)',
+              borderRadius: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: '20px',
+              backdropFilter: 'blur(10px)'
+            }}>
+              <span style={{ fontSize: '28px' }}>📊</span>
+            </div>
+            <div>
+              <h1 style={{ 
+                margin: 0, 
+                fontSize: '28px', 
+                fontWeight: '700',
+                letterSpacing: '-0.5px'
+              }}>Sales Analytics</h1>
+              <p style={{ 
+                margin: 0, 
+                opacity: 0.9, 
+                fontSize: '16px',
+                fontWeight: '400'
+              }}>Comprehensive dashboard for sales performance tracking</p>
+            </div>
+          </div>
+          <div className="d-flex align-items-center gap-4">
+            <div className="text-end">
+              <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '2px' }}>Logged in as</div>
+              <div style={{ fontSize: '16px', fontWeight: '600' }}>
+                👤 {currentUser?.name || currentUser?.nationalID || 'Administrator'}
+              </div>
+            </div>
+            <button className="btn" onClick={handleLogout} style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              color: 'white',
+              border: '2px solid rgba(255, 255, 255, 0.3)',
+              padding: '12px 24px',
+              borderRadius: '12px',
+              fontWeight: '500'
+            }}>
+              Logout →
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="row g-3">
         {/* Left Panel - Controls */}
-        <div className="col-md-4">
-          <div className="card p-3" style={{ borderRadius: '12px', boxShadow: '0 6px 20px rgba(0,0,0,0.06)' }}>
-            <label className="small-muted">Select Year</label>
-            <select 
-              className="form-select"
-              value={filters.year}
-              onChange={(e) => handleFilterChange('year', e.target.value)}
-            >
-              {getYearOptions().map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
+        <div className="col-lg-4" style={{ animation: 'slideUp 0.8s ease-out' }}>
+          <div className="dashboard-card p-4 mb-4">
+            <div className="section-title">🔍 Filters & Controls</div>
+            <div className="section-subtitle">Customize your data view and export options</div>
+            
+            <div className="mb-3">
+              <label className="filter-label">📅 Year</label>
+              <select 
+                className="form-select modern-input"
+                value={filters.year}
+                onChange={(e) => handleFilterChange('year', e.target.value)}
+              >
+                {getYearOptions().map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
 
-            <label className="small-muted mt-2">Select Month</label>
-            <select 
-              className="form-select"
-              value={filters.month}
-              onChange={(e) => handleFilterChange('month', e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="1">Jan</option><option value="2">Feb</option>
-              <option value="3">Mar</option><option value="4">Apr</option>
-              <option value="5">May</option><option value="6">Jun</option>
-              <option value="7">Jul</option><option value="8">Aug</option>
-              <option value="9">Sep</option><option value="10">Oct</option>
-              <option value="11">Nov</option><option value="12">Dec</option>
-            </select>
+            <div className="mb-3">
+              <label className="filter-label">🗓️ Month</label>
+              <select 
+                className="form-select modern-input"
+                value={filters.month}
+                onChange={(e) => handleFilterChange('month', e.target.value)}
+              >
+                <option value="">All Months</option>
+                <option value="1">January</option><option value="2">February</option>
+                <option value="3">March</option><option value="4">April</option>
+                <option value="5">May</option><option value="6">June</option>
+                <option value="7">July</option><option value="8">August</option>
+                <option value="9">September</option><option value="10">October</option>
+                <option value="11">November</option><option value="12">December</option>
+              </select>
+            </div>
 
-            <label className="small-muted mt-2">Period Type</label>
-            <select 
-              className="form-select"
-              value={filters.type}
-              onChange={(e) => handleFilterChange('type', e.target.value)}
-            >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
+            <div className="mb-3">
+              <label className="filter-label">⏱️ Period Type</label>
+              <select 
+                className="form-select modern-input"
+                value={filters.type}
+                onChange={(e) => handleFilterChange('type', e.target.value)}
+              >
+                <option value="daily">Daily View</option>
+                <option value="weekly">Weekly View</option>
+                <option value="monthly">Monthly View</option>
+              </select>
+            </div>
 
-            <div className="d-grid mt-3">
-              <button className="btn btn-primary" onClick={loadSummary}>
-                Load Summary
+            <div className="mb-4">
+              <label className="filter-label">👤 Salesperson</label>
+              <select 
+                className="form-select modern-input"
+                value={filters.salesperson}
+                onChange={(e) => handleFilterChange('salesperson', e.target.value)}
+              >
+                <option value="">All Salespeople</option>
+                {getSalespeopleOptions().map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="d-grid gap-3">
+              <button className="btn btn-primary-custom" onClick={loadSummary}>
+                📈 Update Dashboard
               </button>
-              <button className="btn btn-outline-secondary mt-2" onClick={exportCSV}>
-                Export Visits (CSV)
+              <button className="btn btn-secondary-custom" onClick={exportCSV}>
+                📊 Export Data (CSV)
               </button>
             </div>
           </div>
 
-          <div className="card p-3 mt-3" style={{ borderRadius: '12px', boxShadow: '0 6px 20px rgba(0,0,0,0.06)' }}>
-            <h6>Quick totals</h6>
-            <div className="small-muted">Visits: <strong>{totals.visits}</strong></div>
-            <div className="small-muted">Sold: <strong>{totals.sold}</strong></div>
-            <div className="small-muted">Cartons: <strong>{totals.cartons}</strong></div>
+          {/* Stats Summary */}
+          <div className="stat-card" style={{ animation: 'slideUp 1s ease-out' }}>
+            <div className="section-title" style={{ color: 'white', marginBottom: '16px' }}>📈 Quick Overview</div>
+            <div className="row g-0">
+              <div className="col-4 text-center">
+                <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>{totals.visits}</div>
+                <div style={{ fontSize: '12px', opacity: 0.9 }}>Total Visits</div>
+              </div>
+              <div className="col-4 text-center">
+                <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px', color: '#4CAF50' }}>{totals.sold}</div>
+                <div style={{ fontSize: '12px', opacity: 0.9 }}>Sales Made</div>
+              </div>
+              <div className="col-4 text-center">
+                <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px', color: '#FFC107' }}>{totals.cartons}</div>
+                <div style={{ fontSize: '12px', opacity: 0.9 }}>Cartons Sold</div>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Right Panel - Data */}
-        <div className="col-md-8">
+        <div className="col-lg-8" style={{ animation: 'slideUp 0.6s ease-out 0.2s both' }}>
           {/* Map */}
-          <div className="card p-3 mb-3" style={{ borderRadius: '12px', boxShadow: '0 6px 20px rgba(0,0,0,0.06)' }}>
-            <h6>Map view</h6>
-            <div style={{ height: '420px', borderRadius: '10px', overflow: 'hidden' }}>
+          <div className="dashboard-card p-4 mb-4">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <div>
+                <div className="section-title">🗺️ Visit Locations</div>
+                <div className="section-subtitle">Interactive map showing all filtered visits</div>
+              </div>
+              <button 
+                className="btn btn-primary-custom"
+                onClick={downloadMapHTML}
+                title="Download current map view as HTML file"
+              >
+                📄 Export Map
+              </button>
+            </div>
+            <div className="map-container" style={{ height: '400px' }}>
               <MapContainer
                 center={mapCenter}
                 zoom={11}
@@ -319,15 +745,16 @@ const AdminDashboard = () => {
           </div>
 
           {/* Users Table */}
-          <div className="card p-3 mb-3" style={{ borderRadius: '12px', boxShadow: '0 6px 20px rgba(0,0,0,0.06)' }}>
-            <h6>By User</h6>
-            <div style={{ maxHeight: '260px', overflow: 'auto' }}>
-              <table className="table">
+          <div className="dashboard-card p-4 mb-4" style={{ animation: 'slideUp 0.8s ease-out 0.4s both' }}>
+            <div className="section-title">👥 Performance by User</div>
+            <div className="section-subtitle">Individual salesperson performance metrics</div>
+            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              <table className="table data-table mb-0">
                 <thead>
                   <tr>
-                    <th>User</th>
+                    <th>Name</th>
                     <th>Visits</th>
-                    <th>Sold</th>
+                    <th>Sales</th>
                     <th>Cartons</th>
                     <th>Efficiency</th>
                   </tr>
@@ -335,30 +762,36 @@ const AdminDashboard = () => {
                 <tbody>
                   {summaryData.users
                     .sort((a, b) => b.visits - a.visits)
-                    .map((user, index) => (
-                      <tr key={index}>
-                        <td>{user.name || user.nationalID}</td>
-                        <td>{user.visits}</td>
-                        <td>{user.sold}</td>
-                        <td>{user.cartons}</td>
-                        <td>{user.efficiency}%</td>
-                      </tr>
-                    ))}
+                    .map((user, index) => {
+                      const efficiency = parseInt(user.efficiency);
+                      const badgeClass = efficiency >= 70 ? 'efficiency-high' : efficiency >= 40 ? 'efficiency-medium' : 'efficiency-low';
+                      
+                      return (
+                        <tr key={index}>
+                          <td style={{ fontWeight: '600' }}>{user.name || user.nationalID}</td>
+                          <td>{user.visits}</td>
+                          <td><span style={{ color: user.sold > 0 ? '#28a745' : '#dc3545', fontWeight: '600' }}>{user.sold}</span></td>
+                          <td>{user.cartons}</td>
+                          <td><span className={`efficiency-badge ${badgeClass}`}>{user.efficiency}%</span></td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
           </div>
 
           {/* Regions Table */}
-          <div className="card p-3" style={{ borderRadius: '12px', boxShadow: '0 6px 20px rgba(0,0,0,0.06)' }}>
-            <h6>By Region</h6>
-            <div style={{ maxHeight: '220px', overflow: 'auto' }}>
-              <table className="table">
+          <div className="dashboard-card p-4 mb-4" style={{ animation: 'slideUp 1s ease-out 0.6s both' }}>
+            <div className="section-title">🌍 Performance by Region</div>
+            <div className="section-subtitle">Regional sales performance breakdown</div>
+            <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+              <table className="table data-table mb-0">
                 <thead>
                   <tr>
                     <th>Region</th>
                     <th>Visits</th>
-                    <th>Sold</th>
+                    <th>Sales</th>
                     <th>Cartons</th>
                     <th>Efficiency</th>
                   </tr>
@@ -366,15 +799,64 @@ const AdminDashboard = () => {
                 <tbody>
                   {summaryData.regions
                     .sort((a, b) => b.visits - a.visits)
-                    .map((region, index) => (
-                      <tr key={index}>
-                        <td>{region.region}</td>
-                        <td>{region.visits}</td>
-                        <td>{region.sold}</td>
-                        <td>{region.cartons}</td>
-                        <td>{region.efficiency}%</td>
-                      </tr>
-                    ))}
+                    .map((region, index) => {
+                      const efficiency = parseInt(region.efficiency);
+                      const badgeClass = efficiency >= 70 ? 'efficiency-high' : efficiency >= 40 ? 'efficiency-medium' : 'efficiency-low';
+                      
+                      return (
+                        <tr key={index}>
+                          <td style={{ fontWeight: '600' }}>{region.region}</td>
+                          <td>{region.visits}</td>
+                          <td><span style={{ color: region.sold > 0 ? '#28a745' : '#dc3545', fontWeight: '600' }}>{region.sold}</span></td>
+                          <td>{region.cartons}</td>
+                          <td><span className={`efficiency-badge ${badgeClass}`}>{region.efficiency}%</span></td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Time Series Table */}
+          <div className="dashboard-card p-4" style={{ animation: 'slideUp 1.2s ease-out 0.8s both' }}>
+            <div className="section-title">📈 Time Series Analysis</div>
+            <div className="section-subtitle">{filters.type.charAt(0).toUpperCase() + filters.type.slice(1)} performance trends</div>
+            <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+              <table className="table data-table mb-0">
+                <thead>
+                  <tr>
+                    <th>{filters.type === 'daily' ? 'Date' : filters.type === 'weekly' ? 'Week' : 'Month'}</th>
+                    <th>Visits</th>
+                    <th>Sold</th>
+                    <th>Cartons</th>
+                    <th>Efficiency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryData.timeseries && summaryData.timeseries[filters.type] &&
+                    summaryData.timeseries[filters.type]
+                      .sort((a, b) => {
+                        const aKey = a.date || a.week || a.month;
+                        const bKey = b.date || b.week || b.month;
+                        return bKey.localeCompare(aKey);
+                      })
+                      .map((item, index) => {
+                        const displayKey = item.date || item.week || item.month;
+                        const formattedKey = filters.type === 'daily' 
+                          ? new Date(displayKey).toLocaleDateString()
+                          : displayKey;
+                        
+                        return (
+                          <tr key={index}>
+                            <td>{formattedKey}</td>
+                            <td>{item.visits}</td>
+                            <td>{item.sold}</td>
+                            <td>{item.cartons}</td>
+                            <td>{item.efficiency}%</td>
+                          </tr>
+                        );
+                      })}
                 </tbody>
               </table>
             </div>
@@ -384,9 +866,19 @@ const AdminDashboard = () => {
 
       {/* Visit Details Modal */}
       {showModal && selectedVisit && (
-        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <div className="modal fade show" style={{ 
+          display: 'block', 
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(8px)'
+        }}>
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
+            <div className="modal-content" style={{
+              background: 'white',
+              borderRadius: '20px',
+              border: 'none',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+              overflow: 'hidden'
+            }}>
               <div className="modal-header">
                 <h5 className="modal-title">Visit Details</h5>
                 <button 
