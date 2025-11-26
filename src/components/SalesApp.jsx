@@ -16,6 +16,7 @@ const SalesApp = () => {
   const [selfieData, setSelfieData] = useState("");
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
   const [cameraFacing, setCameraFacing] = useState("user");
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0, stockBalance: 0, stockBalanceBySKU: {} });
   const [upliftStatus, setUpliftStatus] = useState([]);
@@ -214,9 +215,34 @@ const SalesApp = () => {
 
   // Flip camera between front and rear
   const flipCamera = async () => {
-    const newFacing = cameraFacing === "user" ? "environment" : "user";
-    setCameraFacing(newFacing);
-    await startCamera(newFacing);
+    if (isSwitchingCamera) return; // Prevent multiple rapid clicks
+    
+    setIsSwitchingCamera(true);
+    
+    try {
+      // Stop current camera completely
+      if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach(track => {
+          track.stop();
+          track.enabled = false;
+        });
+        videoRef.current.srcObject = null;
+      }
+      
+      // Wait longer to ensure camera is fully released
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Switch to new camera
+      const newFacing = cameraFacing === "user" ? "environment" : "user";
+      setCameraFacing(newFacing);
+      await startCamera(newFacing);
+      
+    } catch (error) {
+      console.error('Camera flip failed:', error);
+    } finally {
+      setIsSwitchingCamera(false);
+    }
   };
 
   // Handle SKU quantity changes
@@ -949,26 +975,28 @@ const SalesApp = () => {
                   <button
                     type="button"
                     onClick={flipCamera}
+                    disabled={isSwitchingCamera}
                     style={{
                       position: 'absolute',
                       top: '10px',
                       right: '10px',
-                      background: 'rgba(0,0,0,0.5)',
+                      background: isSwitchingCamera ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.5)',
                       border: 'none',
                       borderRadius: '50%',
                       width: '40px',
                       height: '40px',
                       color: 'white',
                       fontSize: '20px',
-                      cursor: 'pointer',
+                      cursor: isSwitchingCamera ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      zIndex: 10
+                      zIndex: 10,
+                      opacity: isSwitchingCamera ? 0.6 : 1
                     }}
                     title="Switch Camera"
                   >
-                    🔄
+                    {isSwitchingCamera ? '⏳' : '🔄'}
                   </button>
                 </div>
 
