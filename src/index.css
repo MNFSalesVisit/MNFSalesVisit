@@ -132,6 +132,7 @@ label{
   object-fit:cover; 
   display:block; 
   margin:0 auto; 
+  height:auto;
 }
 
 #preview{ 
@@ -191,6 +192,14 @@ label{
 }
 
 @media(max-width:480px){
-  #camera{ height:160px; }
+  #camera{ 
+    max-width:90vw; 
+    aspect-ratio:9/16;
+    height:auto;
+  }
+  #preview{
+    width:45vw;
+    height:calc(45vw * 16 / 9);
+  }
   #topHeading .dateText { font-size:13px; }
 }
