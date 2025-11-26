@@ -181,7 +181,7 @@ const SalesApp = () => {
   // Auto-capture location with enhanced accuracy
   const autoCaptureLocation = () => {
     return new Promise((resolve, reject) => {
-      console.log("Starting enhanced GPS capture...");
+      console.log("Starting GPS capture...");
       
       if (!navigator.geolocation) {
         console.error("Geolocation not supported");
@@ -189,86 +189,73 @@ const SalesApp = () => {
         return;
       }
 
-      let attemptCount = 0;
-      const maxAttempts = 3;
-      const qualityThreshold = 30; // Accept readings under 30m accuracy
-      const goodReadings = []; // Store all good quality readings
+      const allReadings = [];
+      let readingCount = 0;
+      const maxReadings = 3;
 
-      const tryGetPosition = () => {
-        attemptCount++;
-        console.log(`GPS attempt ${attemptCount} of ${maxAttempts}`);
-
+      const collectReading = () => {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            const accuracy = pos.coords.accuracy;
-            console.log(`GPS attempt ${attemptCount} - Accuracy: ${accuracy}m, Lat: ${pos.coords.latitude}, Lng: ${pos.coords.longitude}`);
+            readingCount++;
+            allReadings.push({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy
+            });
+            
+            console.log(`Reading ${readingCount}/${maxReadings} - Accuracy: ${pos.coords.accuracy.toFixed(1)}m`);
 
-            // Only keep readings with good accuracy
-            if (accuracy <= qualityThreshold) {
-              goodReadings.push({
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                accuracy: accuracy
-              });
-              console.log(`Good reading collected. Total good readings: ${goodReadings.length}`);
-            }
-
-            // Stop immediately if we have 2 good readings, or reached max attempts
-            if (goodReadings.length >= 2 || attemptCount >= maxAttempts) {
-              if (goodReadings.length > 0) {
-                // Average all good readings for stable coordinates
-                const avgLat = goodReadings.reduce((sum, r) => sum + r.latitude, 0) / goodReadings.length;
-                const avgLng = goodReadings.reduce((sum, r) => sum + r.longitude, 0) / goodReadings.length;
-                const avgAccuracy = goodReadings.reduce((sum, r) => sum + r.accuracy, 0) / goodReadings.length;
-                
-                const newCoords = {
-                  latitude: avgLat,
-                  longitude: avgLng
-                };
-                console.log(`GPS capture complete - ${goodReadings.length} readings averaged, Avg accuracy: ${avgAccuracy.toFixed(1)}m, Final coordinates:`, newCoords);
-                setCoords(newCoords);
-                resolve(newCoords);
-              } else {
-                reject("No quality GPS readings obtained");
-              }
+            if (readingCount >= maxReadings) {
+              // Average all readings for best accuracy
+              const avgLat = allReadings.reduce((sum, r) => sum + r.latitude, 0) / allReadings.length;
+              const avgLng = allReadings.reduce((sum, r) => sum + r.longitude, 0) / allReadings.length;
+              const avgAccuracy = allReadings.reduce((sum, r) => sum + r.accuracy, 0) / allReadings.length;
+              
+              const newCoords = {
+                latitude: avgLat,
+                longitude: avgLng
+              };
+              
+              console.log(`GPS complete - ${allReadings.length} readings averaged, Avg accuracy: ${avgAccuracy.toFixed(1)}m`);
+              setCoords(newCoords);
+              resolve(newCoords);
             } else {
-              // Try again for more readings
-              setTimeout(() => tryGetPosition(), 1000);
+              // Get next reading after short delay
+              setTimeout(() => collectReading(), 800);
             }
           },
           (err) => {
-            console.error(`GPS attempt ${attemptCount} failed:`, err.message, err.code);
+            console.error(`Reading ${readingCount + 1} failed:`, err.message);
             
-            if (attemptCount >= maxAttempts) {
-              if (goodReadings.length > 0) {
-                // Use whatever good readings we have
-                const avgLat = goodReadings.reduce((sum, r) => sum + r.latitude, 0) / goodReadings.length;
-                const avgLng = goodReadings.reduce((sum, r) => sum + r.longitude, 0) / goodReadings.length;
-                
-                const newCoords = {
-                  latitude: avgLat,
-                  longitude: avgLng
-                };
-                console.log(`GPS fallback - ${goodReadings.length} readings averaged, Final coordinates:`, newCoords);
-                setCoords(newCoords);
-                resolve(newCoords);
-              } else {
-                reject("Location failed after " + maxAttempts + " attempts: " + err.message);
-              }
-            } else {
+            // If we have at least one reading, use it
+            if (allReadings.length > 0) {
+              const avgLat = allReadings.reduce((sum, r) => sum + r.latitude, 0) / allReadings.length;
+              const avgLng = allReadings.reduce((sum, r) => sum + r.longitude, 0) / allReadings.length;
+              
+              const newCoords = {
+                latitude: avgLat,
+                longitude: avgLng
+              };
+              
+              console.log(`GPS using ${allReadings.length} readings`);
+              setCoords(newCoords);
+              resolve(newCoords);
+            } else if (readingCount < maxReadings) {
               // Try again
-              setTimeout(() => tryGetPosition(), 1000);
+              setTimeout(() => collectReading(), 800);
+            } else {
+              reject("Unable to get GPS location");
             }
           },
           { 
             enableHighAccuracy: true, 
-            timeout: 10000,
-            maximumAge: 0  // Don't use cached position
+            timeout: 8000,
+            maximumAge: 0
           }
         );
       };
 
-      tryGetPosition();
+      collectReading();
     });
   };
 
