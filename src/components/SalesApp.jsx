@@ -176,12 +176,37 @@ const SalesApp = () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
-    // Capture portrait rectangle image at 720p
+    // Set canvas to 720p portrait
     canvas.width = 720;
     canvas.height = 1280;
     
-    // Draw full video to canvas maintaining aspect ratio
-    canvas.getContext("2d").drawImage(video, 0, 0, 720, 1280);
+    // Get actual video dimensions
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    
+    // Calculate aspect ratios
+    const videoAspect = videoWidth / videoHeight;
+    const canvasAspect = 720 / 1280; // 9:16
+    
+    let sx = 0, sy = 0, sWidth = videoWidth, sHeight = videoHeight;
+    
+    // Crop to fit canvas aspect ratio
+    if (videoAspect > canvasAspect) {
+      // Video is wider, crop horizontally
+      sWidth = videoHeight * canvasAspect;
+      sx = (videoWidth - sWidth) / 2;
+    } else {
+      // Video is taller, crop vertically
+      sHeight = videoWidth / canvasAspect;
+      sy = (videoHeight - sHeight) / 2;
+    }
+    
+    // Draw cropped video to canvas
+    canvas.getContext("2d").drawImage(
+      video,
+      sx, sy, sWidth, sHeight,  // Source rectangle
+      0, 0, 720, 1280            // Destination rectangle
+    );
     
     const dataURL = canvas.toDataURL("image/jpeg", 0.95);
     setSelfieData(dataURL);
