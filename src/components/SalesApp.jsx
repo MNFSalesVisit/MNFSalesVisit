@@ -15,6 +15,7 @@ const SalesApp = () => {
   const [isDark, setIsDark] = useState(false);
   const [selfieData, setSelfieData] = useState("");
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
+  const [cameraFacing, setCameraFacing] = useState("user");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0, stockBalance: 0, stockBalanceBySKU: {} });
   const [upliftStatus, setUpliftStatus] = useState([]);
@@ -181,6 +182,13 @@ const SalesApp = () => {
     
     const dataURL = canvas.toDataURL("image/png");
     setSelfieData(dataURL);
+  };
+
+  // Flip camera between front and rear
+  const flipCamera = async () => {
+    const newFacing = cameraFacing === "user" ? "environment" : "user";
+    setCameraFacing(newFacing);
+    await startCamera(newFacing);
   };
 
   // Handle SKU quantity changes
@@ -902,13 +910,39 @@ const SalesApp = () => {
                 <label className="mt-3">
                   {visitForm.visitType === "Uplift" ? "Receipt Photo" : "Selfie"}
                 </label>
-                <video 
-                  ref={videoRef}
-                  id="camera" 
-                  autoPlay 
-                  muted 
-                  playsInline
-                />
+                <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                  <video 
+                    ref={videoRef}
+                    id="camera" 
+                    autoPlay 
+                    muted 
+                    playsInline
+                  />
+                  <button
+                    type="button"
+                    onClick={flipCamera}
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      background: 'rgba(0,0,0,0.5)',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: '40px',
+                      height: '40px',
+                      color: 'white',
+                      fontSize: '20px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 10
+                    }}
+                    title="Switch Camera"
+                  >
+                    🔄
+                  </button>
+                </div>
 
                 <div className="d-flex gap-2 mt-2">
                   <button type="button" className="btn btn-secondary" onClick={capturePhoto}>
