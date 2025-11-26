@@ -153,11 +153,11 @@ const SalesApp = () => {
       // Small delay to ensure camera is released
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Use exact constraint to force camera selection
+      // Use exact constraint to force camera selection with square aspect ratio
       const constraints = {
         video: facingMode === "environment" 
-          ? { facingMode: { exact: "environment" } }
-          : { facingMode: "user" }
+          ? { facingMode: { exact: "environment" }, aspectRatio: 1, width: { ideal: 400 }, height: { ideal: 400 } }
+          : { facingMode: "user", aspectRatio: 1, width: { ideal: 400 }, height: { ideal: 400 } }
       };
       
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -176,9 +176,16 @@ const SalesApp = () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
-    canvas.width = 120;
-    canvas.height = 120;
-    canvas.getContext("2d").drawImage(video, 0, 0, 120, 120);
+    // Capture square image
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    canvas.width = 400;
+    canvas.height = 400;
+    
+    // Center crop to square
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+    
+    canvas.getContext("2d").drawImage(video, sx, sy, size, size, 0, 0, 400, 400);
     
     const dataURL = canvas.toDataURL("image/png");
     setSelfieData(dataURL);
