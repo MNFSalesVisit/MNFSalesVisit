@@ -125,8 +125,8 @@ label{
 
 #camera{ 
   width:100%; 
-  max-width:400px; 
-  aspect-ratio:1; 
+  max-width:360px; 
+  aspect-ratio:9/16; 
   border-radius:12px; 
   background:#f0f0f0; 
   object-fit:cover; 
@@ -135,8 +135,8 @@ label{
 }
 
 #preview{ 
-  width:120px; 
-  height:120px; 
+  width:180px; 
+  height:320px; 
   object-fit:cover; 
   border-radius:12px; 
 }

@@ -1151,18 +1151,37 @@ const AdminDashboard = () => {
                           <div className="mb-2">
                             <small className="text-muted">Receipt Photo</small>
                             {uplift.receiptPhoto ? (
-                              <img 
-                                src={uplift.receiptPhoto} 
-                                alt="Receipt" 
-                                style={{
-                                  width: '100%',
-                                  maxWidth: '200px',
-                                  borderRadius: '8px',
-                                  border: '2px solid #ddd',
-                                  cursor: 'pointer'
-                                }}
-                                onClick={() => window.open(uplift.receiptPhoto, '_blank')}
-                              />
+                              <>
+                                <img 
+                                  src={uplift.receiptPhoto} 
+                                  alt="Receipt" 
+                                  style={{
+                                    width: '100%',
+                                    maxWidth: '200px',
+                                    borderRadius: '8px',
+                                    border: '2px solid #ddd',
+                                    cursor: 'pointer',
+                                    display: 'block',
+                                    marginBottom: '8px'
+                                  }}
+                                  onClick={() => window.open(uplift.receiptPhoto, '_blank')}
+                                />
+                                <div className="d-flex gap-2">
+                                  <button 
+                                    className="btn btn-sm btn-outline-primary"
+                                    onClick={() => window.open(uplift.receiptPhoto, '_blank')}
+                                  >
+                                    <i className="bi bi-eye me-1"></i>View
+                                  </button>
+                                  <a 
+                                    href={uplift.receiptPhoto} 
+                                    download={`receipt_${uplift.nationalID}_${new Date(uplift.timestamp).toISOString().slice(0,10)}.jpg`}
+                                    className="btn btn-sm btn-outline-success"
+                                  >
+                                    <i className="bi bi-download me-1"></i>Download
+                                  </a>
+                                </div>
+                              </>
                             ) : (
                               <div className="text-muted">No photo</div>
                             )}
