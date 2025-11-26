@@ -24,6 +24,13 @@ class ApiService {
     });
   }
 
+  async saveUpliftVisit(record) {
+    return await this.request({
+      action: "saveUpliftVisit",
+      record
+    });
+  }
+
   async getDashboard(nationalID) {
     return await this.request({
       action: "dashboard",
@@ -37,10 +44,97 @@ class ApiService {
     });
   }
 
+  async getAllUpliftVisits() {
+    return await this.request({
+      action: "getAllUpliftVisits"
+    });
+  }
+
+  async getPendingUplifts() {
+    return await this.request({
+      action: "getPendingUplifts"
+    });
+  }
+
+  async approveUplift(rowIndex, approvedBy) {
+    return await this.request({
+      action: "approveUplift",
+      rowIndex,
+      approvedBy
+    });
+  }
+
+  async rejectUplift(rowIndex, reason, rejectedBy) {
+    return await this.request({
+      action: "rejectUplift",
+      rowIndex,
+      reason,
+      rejectedBy
+    });
+  }
+
+  async getUserUpliftStatus(nationalID) {
+    return await this.request({
+      action: "getUserUpliftStatus",
+      nationalID
+    });
+  }
+
   async getAdminSummary(params) {
     return await this.request({
       action: "adminSummary",
       params
+    });
+  }
+
+  async getSKUAnalysis(params) {
+    return await this.request({
+      action: "getSKUAnalysis",
+      params
+    });
+  }
+
+  async setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget) {
+    return await this.request({
+      action: "setUserTargets",
+      nationalID,
+      name,
+      dailyTarget,
+      weeklyTarget,
+      monthlyTarget
+    });
+  }
+
+  async getUserTargets(nationalID) {
+    return await this.request({
+      action: "getUserTargets",
+      nationalID
+    });
+  }
+
+  async getAllTargets() {
+    return await this.request({
+      action: "getAllTargets"
+    });
+  }
+
+  async getUserProgress(nationalID) {
+    return await this.request({
+      action: "getUserProgress",
+      nationalID
+    });
+  }
+
+  async getStockBalanceBySKU(nationalID) {
+    return await this.request({
+      action: "getStockBalanceBySKU",
+      nationalID
+    });
+  }
+
+  async getAllUsersStockBalance() {
+    return await this.request({
+      action: "getAllUsersStockBalance"
     });
   }
 }

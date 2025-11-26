@@ -48,11 +48,6 @@ const AdminDashboard = () => {
     salesperson: ""
   });
 
-  // Targets state
-  const [allTargets, setAllTargets] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
-  const [targetEdits, setTargetEdits] = useState({});
-
   // Auth check and initial data load
   useEffect(() => {
     const session = localStorage.getItem("userSession");
@@ -74,8 +69,6 @@ const AdminDashboard = () => {
     fetchAllUplifts();
     loadSummary();
     fetchPendingUplifts();
-    fetchAllTargets();
-    fetchUsers();
   }, [navigate]);
 
   // Fetch all visits
@@ -178,89 +171,6 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to reject uplift:', error);
       alert('Failed to reject uplift. Please try again.');
-    }
-  };
-
-  // Fetch all targets
-  const fetchAllTargets = async () => {
-    try {
-      const targets = await apiService.getAllTargets();
-      setAllTargets(targets);
-    } catch (error) {
-      console.error('Failed to fetch targets:', error);
-      setAllTargets([]);
-    }
-  };
-
-  // Fetch all users
-  const fetchUsers = async () => {
-    try {
-      const uniqueUsers = {};
-      allVisits.forEach(visit => {
-        if (visit.nationalID && !uniqueUsers[visit.nationalID]) {
-          uniqueUsers[visit.nationalID] = {
-            nationalID: visit.nationalID,
-            name: visit.name || visit.nationalID
-          };
-        }
-      });
-      setAllUsers(Object.values(uniqueUsers));
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
-      setAllUsers([]);
-    }
-  };
-
-  // Handle target input change
-  const handleTargetChange = (nationalID, field, value) => {
-    setTargetEdits(prev => ({
-      ...prev,
-      [nationalID]: {
-        ...prev[nationalID],
-        [field]: value
-      }
-    }));
-  };
-
-  // Get target value for display
-  const getTargetValue = (nationalID, field) => {
-    if (targetEdits[nationalID] && targetEdits[nationalID][field] !== undefined) {
-      return targetEdits[nationalID][field];
-    }
-    const existing = allTargets.find(t => t.nationalID === nationalID);
-    return existing ? existing[field] : 0;
-  };
-
-  // Save target for a user
-  const handleSaveTarget = async (user) => {
-    const dailyTarget = getTargetValue(user.nationalID, 'dailyTarget');
-    const weeklyTarget = getTargetValue(user.nationalID, 'weeklyTarget');
-    const monthlyTarget = getTargetValue(user.nationalID, 'monthlyTarget');
-
-    try {
-      const result = await apiService.setUserTargets(
-        user.nationalID,
-        user.name,
-        dailyTarget,
-        weeklyTarget,
-        monthlyTarget
-      );
-
-      if (result.success) {
-        alert(`Targets saved for ${user.name}`);
-        fetchAllTargets();
-        // Clear edits for this user
-        setTargetEdits(prev => {
-          const newEdits = { ...prev };
-          delete newEdits[user.nationalID];
-          return newEdits;
-        });
-      } else {
-        alert('Failed to save targets');
-      }
-    } catch (error) {
-      console.error('Error saving targets:', error);
-      alert('Failed to save targets');
     }
   };
 
@@ -603,25 +513,25 @@ const AdminDashboard = () => {
           <div style="margin: 8px 0;">
             <span style="background: ${statusColor}; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;">${uplift.status}</span>
           </div>
-          ${uplift.receiptPhoto ? `<br /><img src="${uplift.receiptPhoto}" style="width: 160px; border-radius: 8px; display: block; margin: 6px auto;" alt="Receipt" />` : ''}
+          ${uplift.receiptPhoto ? \`<br /><img src="${uplift.receiptPhoto}" style="width: 160px; border-radius: 8px; display: block; margin: 6px auto;" alt="Receipt" />\` : ''}
           <div style="margin-top: 6px;">
             <strong>Cartons:</strong> ${uplift.totalCartons || 0}<br />
             <strong>SKUs:</strong> ${uplift.skus || ''}
-            ${uplift.rejectionReason ? `<br /><strong>Reason:</strong> ${uplift.rejectionReason}` : ''}
+            ${uplift.rejectionReason ? \`<br /><strong>Reason:</strong> ${uplift.rejectionReason}\` : ''}
           </div>
         </div>
       `.replace(/\n/g, '').replace(/"/g, '\\"');
       
-      return `L.marker([${lat}, ${lng}], {
+      return \`L.marker([${lat}, ${lng}], {
         icon: L.divIcon({
           className: 'custom-marker',
           html: '<div style="background: ${statusColor}; width: 25px; height: 25px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>',
           iconSize: [25, 25]
         })
-      }).addTo(map).bindPopup("${popupContent}");`;
+      }).addTo(map).bindPopup("${popupContent}");\`;
     }).filter(marker => marker !== null).join('\n        ');
 
-    const htmlContent = `<!DOCTYPE html>
+    const htmlContent = \`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -662,8 +572,8 @@ const AdminDashboard = () => {
         <h3>Uplift Map</h3>
         <p>Generated: ${new Date().toLocaleString()}</p>
         <p>Total Uplifts: ${filteredUplifts.length}</p>
-        ${filters.salesperson ? `<p>Salesperson: ${filters.salesperson}</p>` : ''}
-        ${filters.month ? `<p>Period: ${filters.month}/${filters.year}</p>` : `<p>Year: ${filters.year}</p>`}
+        ${filters.salesperson ? \`<p>Salesperson: ${filters.salesperson}</p>\` : ''}
+        ${filters.month ? \`<p>Period: ${filters.month}/${filters.year}</p>\` : \`<p>Year: ${filters.year}</p>\`}
     </div>
     <div class="legend">
         <strong>Status</strong>
@@ -694,7 +604,7 @@ const AdminDashboard = () => {
         }
     </script>
 </body>
-</html>`;
+</html>\`;
 
     const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -702,10 +612,10 @@ const AdminDashboard = () => {
     link.href = url;
     
     const dateStr = new Date().toISOString().slice(0,10);
-    const filterStr = filters.salesperson ? `_${filters.salesperson.replace(/\s+/g, '_')}` : '';
-    const periodStr = filters.month ? `_${filters.month}-${filters.year}` : `_${filters.year}`;
+    const filterStr = filters.salesperson ? \`_${filters.salesperson.replace(/\s+/g, '_')}\` : '';
+    const periodStr = filters.month ? \`_${filters.month}-${filters.year}\` : \`_${filters.year}\`;
     
-    link.download = `uplift_map${filterStr}${periodStr}_${dateStr}.html`;
+    link.download = \`uplift_map${filterStr}${periodStr}_${dateStr}.html\`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -968,42 +878,6 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Sidebar Navigation */}
-      <div className="dashboard-card p-3 mb-4" style={{ animation: 'slideUp 0.7s ease-out 0.1s both' }}>
-        <div className="d-flex gap-2 flex-wrap">
-          <button 
-            className={`btn ${activeTab === 'overview' ? 'btn-primary-custom' : 'btn-secondary-custom'}`}
-            onClick={() => setActiveTab('overview')}
-            style={{ flex: '1 1 auto', minWidth: '120px' }}
-          >
-            📊 Overview
-          </button>
-          <button 
-            className={`btn ${activeTab === 'analytics' ? 'btn-primary-custom' : 'btn-secondary-custom'}`}
-            onClick={() => setActiveTab('analytics')}
-            style={{ flex: '1 1 auto', minWidth: '120px' }}
-          >
-            📈 Analytics
-          </button>
-          <button 
-            className={`btn ${activeTab === 'map' ? 'btn-primary-custom' : 'btn-secondary-custom'}`}
-            onClick={() => setActiveTab('map')}
-            style={{ flex: '1 1 auto', minWidth: '120px' }}
-          >
-            🗺️ Map Analysis
-          </button>
-          <button 
-            className={`btn ${activeTab === 'targets' ? 'btn-primary-custom' : 'btn-secondary-custom'}`}
-            onClick={() => setActiveTab('targets')}
-            style={{ flex: '1 1 auto', minWidth: '120px' }}
-          >
-            🎯 Set Targets
-          </button>
-        </div>
-      </div>
-
-      {/* OVERVIEW TAB */}
-      {activeTab === 'overview' && (
       <div className="row g-3">
         {/* Left Panel - Controls */}
         <div className="col-lg-4" style={{ animation: 'slideUp 0.8s ease-out' }}>
@@ -1405,141 +1279,6 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
-      )}{/* End Overview Tab */}
-
-      {/* ANALYTICS TAB */}
-      {activeTab === 'analytics' && (
-      <div className="dashboard-card p-4" style={{ animation: 'slideUp 0.6s ease-out' }}>
-        <div className="section-title">📊 Analytics Dashboard</div>
-        <div className="section-subtitle">Detailed performance analytics and insights</div>
-        <div className="text-center text-muted py-5">
-          <i className="bi bi-bar-chart" style={{ fontSize: '4rem' }}></i>
-          <p className="mt-3">Advanced analytics features coming soon</p>
-          <p className="small">Charts, graphs, and detailed performance breakdowns will be available here</p>
-        </div>
-      </div>
-      )}
-
-      {/* MAP ANALYSIS TAB */}
-      {activeTab === 'map' && (
-      <div className="dashboard-card p-4" style={{ animation: 'slideUp 0.6s ease-out' }}>
-        <div className="section-title">🗺️ Map Analysis</div>
-        <div className="section-subtitle">Geographic analysis of sales activities</div>
-        <div className="text-center text-muted py-5">
-          <i className="bi bi-map" style={{ fontSize: '4rem' }}></i>
-          <p className="mt-3">Interactive map analysis features coming soon</p>
-          <p className="small">Heat maps, route optimization, and territory analysis will be available here</p>
-        </div>
-      </div>
-      )}
-
-      {/* SET TARGETS TAB */}
-      {activeTab === 'targets' && (
-      <div className="dashboard-card p-4" style={{ animation: 'slideUp 0.6s ease-out' }}>
-        <div className="section-title">🎯 Sales Targets Management</div>
-        <div className="section-subtitle">Set daily, weekly, and monthly sales targets for each user (measured in cartons sold)</div>
-        
-        <div className="mb-4">
-          <button 
-            className="btn btn-primary-custom"
-            onClick={() => {
-              fetchAllTargets();
-              fetchUsers();
-            }}
-          >
-            🔄 Refresh Data
-          </button>
-        </div>
-
-        {allUsers.length === 0 ? (
-          <div className="text-center text-muted py-5">
-            <i className="bi bi-people" style={{ fontSize: '4rem' }}></i>
-            <p className="mt-3">No users found</p>
-            <p className="small">Users will appear here once visits are recorded</p>
-          </div>
-        ) : (
-          <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-            <table className="table data-table mb-0">
-              <thead>
-                <tr>
-                  <th>National ID</th>
-                  <th>Name</th>
-                  <th>Daily Target (Cartons)</th>
-                  <th>Weekly Target (Cartons)</th>
-                  <th>Monthly Target (Cartons)</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allUsers.map((user, index) => {
-                  const hasChanges = targetEdits[user.nationalID] !== undefined;
-                  return (
-                    <tr key={index}>
-                      <td style={{ fontWeight: '600' }}>{user.nationalID}</td>
-                      <td style={{ fontWeight: '600' }}>{user.name}</td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          className="form-control form-control-sm modern-input"
-                          style={{ width: '140px' }}
-                          value={getTargetValue(user.nationalID, 'dailyTarget')}
-                          onChange={(e) => handleTargetChange(user.nationalID, 'dailyTarget', e.target.value)}
-                          placeholder="0"
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          className="form-control form-control-sm modern-input"
-                          style={{ width: '140px' }}
-                          value={getTargetValue(user.nationalID, 'weeklyTarget')}
-                          onChange={(e) => handleTargetChange(user.nationalID, 'weeklyTarget', e.target.value)}
-                          placeholder="0"
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          className="form-control form-control-sm modern-input"
-                          style={{ width: '140px' }}
-                          value={getTargetValue(user.nationalID, 'monthlyTarget')}
-                          onChange={(e) => handleTargetChange(user.nationalID, 'monthlyTarget', e.target.value)}
-                          placeholder="0"
-                        />
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => handleSaveTarget(user)}
-                          style={{ 
-                            background: hasChanges ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#6c757d',
-                            border: 'none',
-                            color: 'white',
-                            fontWeight: '600',
-                            padding: '8px 20px',
-                            borderRadius: '8px',
-                            transition: 'all 0.3s ease'
-                          }}
-                        >
-                          {hasChanges ? '💾 Save Changes' : '✓ Saved'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div className="alert alert-info mt-4" style={{ borderRadius: '12px', border: '2px solid #bee5eb' }}>
-          <strong>💡 Tip:</strong> Targets are measured in total cartons sold. Make changes in any field and click 'Save Changes' to update the targets for that user.
-        </div>
-      </div>
-      )}
 
       {/* Visit Details Modal */}
       {showModal && selectedVisit && (

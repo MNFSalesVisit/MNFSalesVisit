@@ -11,15 +11,20 @@ const SalesApp = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [showLogin, setShowLogin] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [submittedVisitType, setSubmittedVisitType] = useState("");
   const [isDark, setIsDark] = useState(false);
   const [selfieData, setSelfieData] = useState("");
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0 });
+  const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0, stockBalance: 0, stockBalanceBySKU: {} });
+  const [upliftStatus, setUpliftStatus] = useState([]);
+  const [submitError, setSubmitError] = useState("");
+  const [progress, setProgress] = useState({ daily: { current: 0, target: 0, percentage: 0 }, weekly: { current: 0, target: 0, percentage: 0 }, monthly: { current: 0, target: 0, percentage: 0 } });
   
   // Form state
   const [loginForm, setLoginForm] = useState({ nationalID: "", password: "" });
   const [visitForm, setVisitForm] = useState({
+    visitType: "",
     region: "",
     shop: "",
     sold: "",
@@ -111,16 +116,36 @@ const SalesApp = () => {
     try {
       const data = await apiService.getDashboard(nationalID);
       setDashboard(data);
+      
+      // Load uplift status
+      const uplifts = await apiService.getUserUpliftStatus(nationalID);
+      setUpliftStatus(uplifts);
+      
+      // Load progress - with error handling
+      try {
+        const progressData = await apiService.getUserProgress(nationalID);
+        if (progressData && progressData.daily && progressData.weekly && progressData.monthly) {
+          setProgress(progressData);
+        }
+      } catch (progressError) {
+        console.error('Progress load failed:', progressError);
+        // Keep default progress state
+      }
     } catch (error) {
       console.error('Dashboard load failed:', error);
     }
   };
 
   // Start camera
-  const startCamera = async () => {
+  const startCamera = async (facingMode = "user") => {
     try {
+      // Stop existing stream if any
+      if (videoRef.current && videoRef.current.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "user" } 
+        video: { facingMode: facingMode } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -165,9 +190,9 @@ const SalesApp = () => {
       }
 
       let attemptCount = 0;
-      const maxAttempts = 3;
-      let bestAccuracy = Infinity;
-      let bestPosition = null;
+      const maxAttempts = 5;
+      const qualityThreshold = 20; // Only accept readings under 20m accuracy
+      const goodReadings = []; // Store all good quality readings
 
       const tryGetPosition = () => {
         attemptCount++;
@@ -178,41 +203,53 @@ const SalesApp = () => {
             const accuracy = pos.coords.accuracy;
             console.log(`GPS attempt ${attemptCount} - Accuracy: ${accuracy}m, Lat: ${pos.coords.latitude}, Lng: ${pos.coords.longitude}`);
 
-            // Keep track of the most accurate position
-            if (accuracy < bestAccuracy) {
-              bestAccuracy = accuracy;
-              bestPosition = pos;
+            // Only keep readings with good accuracy
+            if (accuracy <= qualityThreshold) {
+              goodReadings.push({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                accuracy: accuracy
+              });
+              console.log(`Good reading collected. Total good readings: ${goodReadings.length}`);
             }
 
-            // If we get good accuracy (under 20m) or we've tried all attempts
-            if (accuracy <= 20 || attemptCount >= maxAttempts) {
-              if (bestPosition) {
+            // If we have enough good readings or reached max attempts
+            if (goodReadings.length >= 3 || attemptCount >= maxAttempts) {
+              if (goodReadings.length > 0) {
+                // Average all good readings for stable coordinates
+                const avgLat = goodReadings.reduce((sum, r) => sum + r.latitude, 0) / goodReadings.length;
+                const avgLng = goodReadings.reduce((sum, r) => sum + r.longitude, 0) / goodReadings.length;
+                const avgAccuracy = goodReadings.reduce((sum, r) => sum + r.accuracy, 0) / goodReadings.length;
+                
                 const newCoords = {
-                  latitude: bestPosition.coords.latitude,
-                  longitude: bestPosition.coords.longitude
+                  latitude: avgLat,
+                  longitude: avgLng
                 };
-                console.log(`GPS capture complete - Best accuracy: ${bestAccuracy}m, Coordinates:`, newCoords);
+                console.log(`GPS capture complete - ${goodReadings.length} readings averaged, Avg accuracy: ${avgAccuracy.toFixed(1)}m, Final coordinates:`, newCoords);
                 setCoords(newCoords);
                 resolve(newCoords);
               } else {
-                reject("No GPS position obtained");
+                reject("No quality GPS readings obtained");
               }
             } else {
-              // Try again for better accuracy
-              setTimeout(() => tryGetPosition(), 1000);
+              // Try again for more readings
+              setTimeout(() => tryGetPosition(), 2000);
             }
           },
           (err) => {
             console.error(`GPS attempt ${attemptCount} failed:`, err.message, err.code);
             
             if (attemptCount >= maxAttempts) {
-              if (bestPosition) {
-                // Use best available position even if not ideal
+              if (goodReadings.length > 0) {
+                // Use whatever good readings we have
+                const avgLat = goodReadings.reduce((sum, r) => sum + r.latitude, 0) / goodReadings.length;
+                const avgLng = goodReadings.reduce((sum, r) => sum + r.longitude, 0) / goodReadings.length;
+                
                 const newCoords = {
-                  latitude: bestPosition.coords.latitude,
-                  longitude: bestPosition.coords.longitude
+                  latitude: avgLat,
+                  longitude: avgLng
                 };
-                console.log(`GPS fallback - Using best available accuracy: ${bestAccuracy}m, Coordinates:`, newCoords);
+                console.log(`GPS fallback - ${goodReadings.length} readings averaged, Final coordinates:`, newCoords);
                 setCoords(newCoords);
                 resolve(newCoords);
               } else {
@@ -220,12 +257,12 @@ const SalesApp = () => {
               }
             } else {
               // Try again
-              setTimeout(() => tryGetPosition(), 1500);
+              setTimeout(() => tryGetPosition(), 2500);
             }
           },
           { 
             enableHighAccuracy: true, 
-            timeout: 15000,
+            timeout: 25000,
             maximumAge: 0  // Don't use cached position
           }
         );
@@ -243,15 +280,19 @@ const SalesApp = () => {
       return; // Prevent double submission
     }
     
+    const { visitType } = visitForm;
+    const photoLabel = visitType === "Uplift" ? "receipt" : "selfie";
+    
     if (!selfieData) {
-      alert("Capture selfie");
+      alert(`Capture ${photoLabel}`);
       return;
     }
 
     setIsSubmitting(true);
 
+    let capturedCoords;
     try {
-      const capturedCoords = await autoCaptureLocation();
+      capturedCoords = await autoCaptureLocation();
       console.log("Location captured successfully:", capturedCoords);
     } catch (e) {
       console.error("Location capture failed:", e);
@@ -260,15 +301,69 @@ const SalesApp = () => {
       return;
     }
 
-    // Validate that coordinates were actually captured
-    if (!coords.latitude || !coords.longitude) {
-      alert("GPS coordinates not captured. Please ensure location access is enabled and try again.");
-      setIsSubmitting(false);
+    const { region, shop, sold, reason, otherReason } = visitForm;
+
+    // Handle Uplift Visit
+    if (visitType === "Uplift") {
+      let skusPayload = [];
+      availableSKUs.forEach(sku => {
+        const qty = skuQuantities[sku];
+        if (qty > 0) skusPayload.push({ name: sku, qty });
+      });
+      if (skusPayload.length === 0) {
+        alert("Select SKU quantity");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const record = {
+        nationalID: currentUser.nationalID,
+        name: currentUser.name,
+        region,
+        shopName: shop,
+        skus: skusPayload,
+        receiptPhoto: selfieData,
+        longitude: capturedCoords.longitude,
+        latitude: capturedCoords.latitude
+      };
+
+      console.log("Submitting uplift record with coordinates:", {
+        longitude: capturedCoords.longitude,
+        latitude: capturedCoords.latitude
+      });
+
+      try {
+        await apiService.saveUpliftVisit(record);
+        
+        // Show success overlay
+        setSubmittedVisitType("Uplift");
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 1600);
+
+        // Reset form
+        setVisitForm({
+          visitType: "",
+          region: "",
+          shop: "",
+          sold: "",
+          reason: "",
+          otherReason: ""
+        });
+        setSelfieData("");
+        setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
+        
+        // Reload dashboard
+        loadDashboard(currentUser.nationalID);
+      } catch (error) {
+        alert("Submission failed. Please try again.");
+        console.error(error);
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
-    const { region, shop, sold, reason, otherReason } = visitForm;
-
+    // Handle Shop Visit (existing logic)
     let skusPayload = [];
     if (sold === "Yes") {
       availableSKUs.forEach(sku => {
@@ -277,6 +372,23 @@ const SalesApp = () => {
       });
       if (skusPayload.length === 0) {
         alert("Select SKU quantity");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Calculate total cartons being sold
+      const totalCartonsToSell = skusPayload.reduce((sum, s) => sum + Number(s.qty), 0);
+
+      // Check stock balance
+      if (dashboard.stockBalance === 0) {
+        alert("Insufficient stock balance. You need to uplift stock before making a sale.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (totalCartonsToSell > dashboard.stockBalance) {
+        alert(`Insufficient stock balance. You have ${dashboard.stockBalance} cartons available, but trying to sell ${totalCartonsToSell} cartons.`);
+        setIsSubmitting(false);
         return;
       }
     }
@@ -285,11 +397,13 @@ const SalesApp = () => {
     if (sold === "No") {
       if (!reason) {
         alert("Select reason");
+        setIsSubmitting(false);
         return;
       }
       reasonVal = reason === "Other" ? otherReason.trim() : reason;
       if (reason === "Other" && !reasonVal) {
         alert("Specify reason");
+        setIsSubmitting(false);
         return;
       }
     }
@@ -302,26 +416,49 @@ const SalesApp = () => {
       sold,
       skus: skusPayload,
       reason: reasonVal,
-      longitude: coords.longitude,
-      latitude: coords.latitude,
+      longitude: capturedCoords.longitude,
+      latitude: capturedCoords.latitude,
       selfie: selfieData
     };
 
     console.log("Submitting record with coordinates:", {
-      longitude: coords.longitude,
-      latitude: coords.latitude,
-      coordsState: coords
+      longitude: capturedCoords.longitude,
+      latitude: capturedCoords.latitude
     });
 
     try {
-      await apiService.saveVisit(record);
+      const result = await apiService.saveVisit(record);
+      
+      // Check for SKU validation errors
+      if (!result.success && result.insufficientSKUs) {
+        // Format error message showing each insufficient SKU
+        const errorDetails = result.insufficientSKUs
+          .map(item => `${item.sku}: requested ${item.requested}, available ${item.available}`)
+          .join("\n");
+        
+        setSubmitError(`❌ Insufficient stock:\n${errorDetails}`);
+        setIsSubmitting(false);
+        
+        // Clear error after 5 seconds
+        setTimeout(() => setSubmitError(""), 5000);
+        return;
+      }
+      
+      if (!result.success) {
+        alert(result.message || "Submission failed. Please try again.");
+        setIsSubmitting(false);
+        return;
+      }
       
       // Show success overlay
+      setSubmittedVisitType("Shop Visit");
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 1600);
 
-      // Reset form
+      // Reset form and error
+      setSubmitError("");
       setVisitForm({
+        visitType: "",
         region: "",
         shop: "",
         sold: "",
@@ -387,7 +524,11 @@ const SalesApp = () => {
           <div className="check">
             <i className="bi bi-check-lg"></i>
           </div>
-          <h5>Successfully submitted visit</h5>
+          <h5>
+            {submittedVisitType === "Uplift" 
+              ? "Successfully submitted your uplift. Wait for the admin to verify." 
+              : "Successfully submitted visit"}
+          </h5>
         </div>
       </div>
 
@@ -411,7 +552,7 @@ const SalesApp = () => {
 
         {/* Dashboard Card */}
         <div className="card-custom">
-          <div className="d-flex justify-content-between">
+          <div className="d-flex justify-content-between mb-2">
             <div>
               <div className="small-muted">Month-to-date</div>
               <h5>Your Analytics</h5>
@@ -421,145 +562,383 @@ const SalesApp = () => {
               {currentUser?.nationalID}
             </div>
           </div>
-          <div className="small-muted mt-2">
-            Visits: <strong>{dashboard.visitsMTD}</strong><br />
-            Sold: <strong>{dashboard.soldMTD}</strong><br />
-            Cartons: <strong>{dashboard.cartonsMTD}</strong><br />
-            Efficiency: <strong>{dashboard.efficiency}%</strong>
+          
+          <div className="row">
+            {/* Left Side - Analytics */}
+            <div className="col-md-6">
+              <div className="small-muted">
+                Visits: <strong>{dashboard.visitsMTD}</strong><br />
+                Sold: <strong>{dashboard.soldMTD}</strong><br />
+                Cartons: <strong>{dashboard.cartonsMTD}</strong><br />
+                Efficiency: <strong>{dashboard.efficiency}%</strong>
+              </div>
+              <div className="small-muted mt-3" style={{ borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: '10px' }}>
+                <strong>Your Stock Balance</strong><br />
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: dashboard.stockBalance > 0 ? '#28a745' : '#dc3545' }}>
+                  {dashboard.stockBalance} cartons
+                </span>
+                
+                {/* SKU Breakdown */}
+                {dashboard.stockBalanceBySKU && Object.keys(dashboard.stockBalanceBySKU).length > 0 && (
+                  <div style={{ marginTop: '10px', fontSize: '0.85rem' }}>
+                    <strong style={{ display: 'block', marginBottom: '6px' }}>📦 Stock by SKU:</strong>
+                    {Object.entries(dashboard.stockBalanceBySKU).map(([sku, qty]) => (
+                      <div 
+                        key={sku} 
+                        style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between',
+                          padding: '4px 8px',
+                          marginBottom: '4px',
+                          backgroundColor: qty > 0 ? 'rgba(40, 167, 69, 0.1)' : 'rgba(220, 53, 69, 0.1)',
+                          borderRadius: '4px',
+                          border: qty > 0 ? '1px solid rgba(40, 167, 69, 0.3)' : '1px solid rgba(220, 53, 69, 0.3)'
+                        }}
+                      >
+                        <span>{sku}</span>
+                        <span style={{ fontWeight: 'bold', color: qty > 0 ? '#28a745' : '#dc3545' }}>
+                          {qty} {qty === 1 ? 'carton' : 'cartons'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              {/* Sales Targets Progress */}
+              {progress && progress.daily && (
+              <div className="mt-3" style={{ borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: '10px' }}>
+                <div className="small-muted mb-2">
+                  <strong>🎯 Sales Targets</strong>
+                </div>
+                
+                {/* Daily Target */}
+                <div className="mb-2">
+                  <div className="d-flex justify-content-between align-items-center mb-1" style={{ fontSize: '0.75rem' }}>
+                    <span>Daily</span>
+                    <span><strong>{progress.daily.current || 0}</strong> / {progress.daily.target || 0} cartons</span>
+                  </div>
+                  <div style={{ 
+                    width: '100%', 
+                    height: '8px', 
+                    backgroundColor: '#e9ecef', 
+                    borderRadius: '4px', 
+                    overflow: 'hidden' 
+                  }}>
+                    <div style={{ 
+                      width: `${progress.daily.percentage || 0}%`, 
+                      height: '100%', 
+                      backgroundColor: (progress.daily.percentage || 0) >= 100 ? '#28a745' : (progress.daily.percentage || 0) >= 50 ? '#ffc107' : '#dc3545',
+                      transition: 'width 0.3s ease',
+                      borderRadius: '4px'
+                    }}></div>
+                  </div>
+                  <div className="text-end" style={{ fontSize: '0.7rem', marginTop: '2px', fontWeight: 'bold' }}>
+                    {progress.daily.percentage || 0}%
+                  </div>
+                </div>
+                
+                {/* Weekly Target */}
+                <div className="mb-2">
+                  <div className="d-flex justify-content-between align-items-center mb-1" style={{ fontSize: '0.75rem' }}>
+                    <span>Weekly</span>
+                    <span><strong>{progress.weekly.current || 0}</strong> / {progress.weekly.target || 0} cartons</span>
+                  </div>
+                  <div style={{ 
+                    width: '100%', 
+                    height: '8px', 
+                    backgroundColor: '#e9ecef', 
+                    borderRadius: '4px', 
+                    overflow: 'hidden' 
+                  }}>
+                    <div style={{ 
+                      width: `${progress.weekly.percentage || 0}%`, 
+                      height: '100%', 
+                      backgroundColor: (progress.weekly.percentage || 0) >= 100 ? '#28a745' : (progress.weekly.percentage || 0) >= 50 ? '#ffc107' : '#dc3545',
+                      transition: 'width 0.3s ease',
+                      borderRadius: '4px'
+                    }}></div>
+                  </div>
+                  <div className="text-end" style={{ fontSize: '0.7rem', marginTop: '2px', fontWeight: 'bold' }}>
+                    {progress.weekly.percentage || 0}%
+                  </div>
+                </div>
+                
+                {/* Monthly Target */}
+                <div className="mb-2">
+                  <div className="d-flex justify-content-between align-items-center mb-1" style={{ fontSize: '0.75rem' }}>
+                    <span>Monthly</span>
+                    <span><strong>{progress.monthly.current || 0}</strong> / {progress.monthly.target || 0} cartons</span>
+                  </div>
+                  <div style={{ 
+                    width: '100%', 
+                    height: '8px', 
+                    backgroundColor: '#e9ecef', 
+                    borderRadius: '4px', 
+                    overflow: 'hidden' 
+                  }}>
+                    <div style={{ 
+                      width: `${progress.monthly.percentage || 0}%`, 
+                      height: '100%', 
+                      backgroundColor: (progress.monthly.percentage || 0) >= 100 ? '#28a745' : (progress.monthly.percentage || 0) >= 50 ? '#ffc107' : '#dc3545',
+                      transition: 'width 0.3s ease',
+                      borderRadius: '4px'
+                    }}></div>
+                  </div>
+                  <div className="text-end" style={{ fontSize: '0.7rem', marginTop: '2px', fontWeight: 'bold' }}>
+                    {progress.monthly.percentage || 0}%
+                  </div>
+                </div>
+              </div>
+              )}
+            </div>
+
+            {/* Right Side - Uplift Status */}
+            <div className="col-md-6" style={{ borderLeft: '1px solid rgba(0,0,0,0.1)' }}>
+              <div className="small-muted mb-2">
+                <strong>Uplift Status (MTD)</strong>
+              </div>
+              <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                {upliftStatus.length === 0 ? (
+                  <div className="text-center text-muted small" style={{ padding: '20px 0' }}>
+                    No uplift requests this month
+                  </div>
+                ) : (
+                  upliftStatus.map((uplift, index) => (
+                    <div 
+                      key={index} 
+                      className="small mb-2 p-2" 
+                      style={{ 
+                        border: '1px solid #dee2e6', 
+                        borderRadius: '6px',
+                        backgroundColor: uplift.status === 'Approved' ? '#d4edda' : 
+                                       uplift.status === 'Rejected' ? '#f8d7da' : '#fff3cd'
+                      }}
+                    >
+                      <div className="d-flex justify-content-between align-items-center">
+                        <strong style={{ fontSize: '0.85rem' }}>{uplift.skus}</strong>
+                        <span 
+                          className="badge" 
+                          style={{ 
+                            backgroundColor: uplift.status === 'Approved' ? '#28a745' : 
+                                           uplift.status === 'Rejected' ? '#dc3545' : '#ffc107',
+                            color: uplift.status === 'Pending' ? '#000' : '#fff',
+                            fontSize: '0.7rem'
+                          }}
+                        >
+                          {uplift.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                        <strong>{uplift.totalCartons}</strong> cartons
+                        <span className="text-muted ms-2">
+                          {new Date(uplift.timestamp).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {uplift.status === 'Rejected' && uplift.rejectionReason && (
+                        <div style={{ 
+                          fontSize: '0.75rem', 
+                          marginTop: '6px', 
+                          padding: '6px', 
+                          backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                          borderRadius: '4px'
+                        }}>
+                          <strong>Reason:</strong> {uplift.rejectionReason}
+                          <div style={{ color: '#dc3545', fontWeight: '500', marginTop: '4px' }}>
+                            Please uplift again
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Error Message Display */}
+        {submitError && (
+          <div 
+            style={{
+              backgroundColor: '#f8d7da',
+              border: '1px solid #f5c6cb',
+              borderRadius: '8px',
+              padding: '12px 16px',
+              marginBottom: '16px',
+              color: '#721c24',
+              whiteSpace: 'pre-line',
+              fontSize: '0.9rem'
+            }}
+          >
+            {submitError}
+          </div>
+        )}
 
         {/* Form Card */}
         <div className="card-custom">
           <form onSubmit={handleSubmit}>
-            <label>Region</label>
+            <label>Visit Type</label>
             <select 
               className="form-select" 
-              value={visitForm.region}
-              onChange={(e) => setVisitForm(prev => ({ ...prev, region: e.target.value }))}
+              value={visitForm.visitType}
+              onChange={(e) => {
+                const newType = e.target.value;
+                setVisitForm(prev => ({ ...prev, visitType: newType }));
+                // Switch camera based on visit type
+                if (newType === "Uplift") {
+                  startCamera("environment"); // Rear camera
+                } else if (newType === "Shop Visit") {
+                  startCamera("user"); // Front camera
+                }
+                // Reset photo when changing visit type
+                setSelfieData("");
+              }}
               required
             >
-              <option value="">Select region</option>
-              <option>Mvita</option>
-              <option>Nyali</option>
-              <option>Kisauni</option>
-              <option>Likoni</option>
-              <option>Changamwe</option>
-              <option>Jomvu</option>
+              <option value="">Select visit type</option>
+              <option>Uplift</option>
+              <option>Shop Visit</option>
             </select>
 
-            <label className="mt-3">Shop Name</label>
-            <input 
-              className="form-control" 
-              value={visitForm.shop}
-              onChange={(e) => setVisitForm(prev => ({ ...prev, shop: e.target.value }))}
-              required 
-            />
-
-            <label className="mt-3">Sold?</label>
-            <select 
-              className="form-select" 
-              value={visitForm.sold}
-              onChange={(e) => setVisitForm(prev => ({ ...prev, sold: e.target.value }))}
-              required
-            >
-              <option value="">Select</option>
-              <option>Yes</option>
-              <option>No</option>
-            </select>
-
-            {/* SKU Section */}
-            {visitForm.sold === "Yes" && (
-              <div className="mt-3">
-                <label><strong>Select SKU & quantity</strong></label>
-                <div className="mt-2">
-                  {availableSKUs.map(sku => (
-                    <div key={sku} className="sku-item">
-                      <strong>{sku}</strong>
-                      <div className="qty-buttons">
-                        <button 
-                          type="button" 
-                          onClick={() => changeQuantity(sku, -1)}
-                        >
-                          -
-                        </button>
-                        <span style={{ padding: "0 10px" }}>{skuQuantities[sku]}</span>
-                        <button 
-                          type="button" 
-                          onClick={() => changeQuantity(sku, 1)}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Reason Section */}
-            {visitForm.sold === "No" && (
-              <div className="mt-3">
-                <label>Reason for not selling</label>
+            {visitForm.visitType && (
+              <>
+                <label className="mt-3">Region</label>
                 <select 
-                  className="form-select"
-                  value={visitForm.reason}
-                  onChange={(e) => setVisitForm(prev => ({ ...prev, reason: e.target.value }))}
+                  className="form-select" 
+                  value={visitForm.region}
+                  onChange={(e) => setVisitForm(prev => ({ ...prev, region: e.target.value }))}
+                  required
                 >
-                  <option value="">Select</option>
-                  <option>Financial Constraint</option>
-                  <option>Not Moving</option>
-                  <option>Prefers Competitor Product</option>
-                  <option>Other</option>
+                  <option value="">Select region</option>
+                  <option>Mvita</option>
+                  <option>Nyali</option>
+                  <option>Kisauni</option>
+                  <option>Likoni</option>
+                  <option>Changamwe</option>
+                  <option>Jomvu</option>
                 </select>
-                {visitForm.reason === "Other" && (
-                  <input 
-                    className="form-control mt-2" 
-                    placeholder="Specify reason"
-                    value={visitForm.otherReason}
-                    onChange={(e) => setVisitForm(prev => ({ ...prev, otherReason: e.target.value }))}
-                  />
-                )}
-              </div>
-            )}
 
-            {/* Selfie */}
-            <label className="mt-3">Selfie</label>
-            <video 
-              ref={videoRef}
-              id="camera" 
-              autoPlay 
-              muted 
-              playsInline
-            />
-
-            <div className="d-flex gap-2 mt-2">
-              <button type="button" className="btn btn-secondary" onClick={capturePhoto}>
-                Capture
-              </button>
-              {selfieData && (
-                <img 
-                  id="preview" 
-                  src={selfieData} 
-                  alt="Preview" 
+                <label className="mt-3">Shop Name</label>
+                <input 
+                  className="form-control" 
+                  value={visitForm.shop}
+                  onChange={(e) => setVisitForm(prev => ({ ...prev, shop: e.target.value }))}
+                  required 
                 />
-              )}
-            </div>
 
-            <button 
-              type="submit" 
-              className="btn btn-danger w-100 mt-4"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                  Submitting...
-                </>
-              ) : (
-                'Submit Visit'
-              )}
-            </button>
+                {visitForm.visitType === "Shop Visit" && (
+                  <>
+                    <label className="mt-3">Sold?</label>
+                    <select 
+                      className="form-select" 
+                      value={visitForm.sold}
+                      onChange={(e) => setVisitForm(prev => ({ ...prev, sold: e.target.value }))}
+                      required
+                    >
+                      <option value="">Select</option>
+                      <option>Yes</option>
+                      <option>No</option>
+                    </select>
+                  </>
+                )}
+
+                {/* SKU Section */}
+                {(visitForm.visitType === "Uplift" || visitForm.sold === "Yes") && (
+                  <div className="mt-3">
+                    <label><strong>Select SKU & quantity</strong></label>
+                    <div className="mt-2">
+                      {availableSKUs.map(sku => (
+                        <div key={sku} className="sku-item">
+                          <strong>{sku}</strong>
+                          <div className="qty-buttons">
+                            <button 
+                              type="button" 
+                              onClick={() => changeQuantity(sku, -1)}
+                            >
+                              -
+                            </button>
+                            <span style={{ padding: "0 10px" }}>{skuQuantities[sku]}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => changeQuantity(sku, 1)}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reason Section */}
+                {visitForm.visitType === "Shop Visit" && visitForm.sold === "No" && (
+                  <div className="mt-3">
+                    <label>Reason for not selling</label>
+                    <select 
+                      className="form-select"
+                      value={visitForm.reason}
+                      onChange={(e) => setVisitForm(prev => ({ ...prev, reason: e.target.value }))}
+                    >
+                      <option value="">Select</option>
+                      <option>Financial Constraint</option>
+                      <option>Not Moving</option>
+                      <option>Prefers Competitor Product</option>
+                      <option>Other</option>
+                    </select>
+                    {visitForm.reason === "Other" && (
+                      <input 
+                        className="form-control mt-2" 
+                        placeholder="Specify reason"
+                        value={visitForm.otherReason}
+                        onChange={(e) => setVisitForm(prev => ({ ...prev, otherReason: e.target.value }))}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Photo Capture */}
+                <label className="mt-3">
+                  {visitForm.visitType === "Uplift" ? "Receipt Photo" : "Selfie"}
+                </label>
+                <video 
+                  ref={videoRef}
+                  id="camera" 
+                  autoPlay 
+                  muted 
+                  playsInline
+                />
+
+                <div className="d-flex gap-2 mt-2">
+                  <button type="button" className="btn btn-secondary" onClick={capturePhoto}>
+                    Capture
+                  </button>
+                  {selfieData && (
+                    <img 
+                      id="preview" 
+                      src={selfieData} 
+                      alt="Preview" 
+                    />
+                  )}
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn btn-danger w-100 mt-4"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                      Submitting...
+                    </>
+                  ) : (
+                    visitForm.visitType === "Uplift" ? 'Submit Uplift' : 'Submit Visit'
+                  )}
+                </button>
+              </>
+            )}
           </form>
           
           {/* Footer */}
