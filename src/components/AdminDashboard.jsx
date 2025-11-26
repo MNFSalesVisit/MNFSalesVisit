@@ -39,6 +39,8 @@ const AdminDashboard = () => {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedUplift, setSelectedUplift] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptImageUrl, setReceiptImageUrl] = useState("");
   
   // Filter state
   const [filters, setFilters] = useState({
@@ -1164,12 +1166,18 @@ const AdminDashboard = () => {
                                     display: 'block',
                                     marginBottom: '8px'
                                   }}
-                                  onClick={() => window.open(uplift.receiptPhoto, '_blank')}
+                                  onClick={() => {
+                                    setReceiptImageUrl(uplift.receiptPhoto);
+                                    setShowReceiptModal(true);
+                                  }}
                                 />
                                 <div className="d-flex gap-2">
                                   <button 
                                     className="btn btn-sm btn-outline-primary"
-                                    onClick={() => window.open(uplift.receiptPhoto, '_blank')}
+                                    onClick={() => {
+                                      setReceiptImageUrl(uplift.receiptPhoto);
+                                      setShowReceiptModal(true);
+                                    }}
                                   >
                                     <i className="bi bi-eye me-1"></i>View
                                   </button>
@@ -1662,6 +1670,62 @@ const AdminDashboard = () => {
                   onClick={handleRejectUplift}
                 >
                   Reject Uplift
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt Image Modal */}
+      {showReceiptModal && (
+        <div 
+          className="modal show d-block" 
+          style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}
+          onClick={() => setShowReceiptModal(false)}
+        >
+          <div 
+            className="modal-dialog modal-dialog-centered modal-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-receipt me-2"></i>
+                  Receipt Photo
+                </h5>
+                <button 
+                  type="button" 
+                  className="btn-close" 
+                  onClick={() => setShowReceiptModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body text-center" style={{ maxHeight: '70vh', overflow: 'auto' }}>
+                <img 
+                  src={receiptImageUrl} 
+                  alt="Receipt" 
+                  style={{
+                    maxWidth: '100%',
+                    height: 'auto',
+                    borderRadius: '8px'
+                  }}
+                />
+              </div>
+              <div className="modal-footer">
+                <a 
+                  href={receiptImageUrl} 
+                  download={`receipt_${new Date().toISOString().slice(0,10)}.jpg`}
+                  className="btn btn-success"
+                >
+                  <i className="bi bi-download me-2"></i>
+                  Download
+                </a>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowReceiptModal(false)}
+                >
+                  Close
                 </button>
               </div>
             </div>
