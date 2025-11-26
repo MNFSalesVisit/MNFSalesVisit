@@ -139,14 +139,27 @@ const SalesApp = () => {
   // Start camera
   const startCamera = async (facingMode = "user") => {
     try {
-      // Stop existing stream if any
+      // Stop existing stream completely
       if (videoRef.current && videoRef.current.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach(track => {
+          track.stop();
+          track.enabled = false;
+        });
+        videoRef.current.srcObject = null;
       }
       
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: facingMode } 
-      });
+      // Small delay to ensure camera is released
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Use exact constraint to force camera selection
+      const constraints = {
+        video: facingMode === "environment" 
+          ? { facingMode: { exact: "environment" } }
+          : { facingMode: "user" }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
