@@ -190,8 +190,8 @@ const SalesApp = () => {
       }
 
       let attemptCount = 0;
-      const maxAttempts = 5;
-      const qualityThreshold = 20; // Only accept readings under 20m accuracy
+      const maxAttempts = 3;
+      const qualityThreshold = 30; // Accept readings under 30m accuracy
       const goodReadings = []; // Store all good quality readings
 
       const tryGetPosition = () => {
@@ -213,8 +213,8 @@ const SalesApp = () => {
               console.log(`Good reading collected. Total good readings: ${goodReadings.length}`);
             }
 
-            // If we have enough good readings or reached max attempts
-            if (goodReadings.length >= 3 || attemptCount >= maxAttempts) {
+            // Stop immediately if we have 2 good readings, or reached max attempts
+            if (goodReadings.length >= 2 || attemptCount >= maxAttempts) {
               if (goodReadings.length > 0) {
                 // Average all good readings for stable coordinates
                 const avgLat = goodReadings.reduce((sum, r) => sum + r.latitude, 0) / goodReadings.length;
@@ -233,7 +233,7 @@ const SalesApp = () => {
               }
             } else {
               // Try again for more readings
-              setTimeout(() => tryGetPosition(), 2000);
+              setTimeout(() => tryGetPosition(), 1000);
             }
           },
           (err) => {
@@ -257,12 +257,12 @@ const SalesApp = () => {
               }
             } else {
               // Try again
-              setTimeout(() => tryGetPosition(), 2500);
+              setTimeout(() => tryGetPosition(), 1000);
             }
           },
           { 
             enableHighAccuracy: true, 
-            timeout: 25000,
+            timeout: 10000,
             maximumAge: 0  // Don't use cached position
           }
         );
