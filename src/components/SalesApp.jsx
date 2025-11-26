@@ -944,16 +944,18 @@ const SalesApp = () => {
                   </button>
                 </div>
 
-                <div className="d-flex gap-2 mt-2">
-                  <button type="button" className="btn btn-secondary" onClick={capturePhoto}>
+                <div className="text-center mt-3">
+                  <button type="button" className="btn btn-secondary px-5" onClick={capturePhoto}>
                     Capture
                   </button>
                   {selfieData && (
-                    <img 
-                      id="preview" 
-                      src={selfieData} 
-                      alt="Preview" 
-                    />
+                    <div className="mt-3">
+                      <img 
+                        id="preview" 
+                        src={selfieData} 
+                        alt="Preview" 
+                      />
+                    </div>
                   )}
                 </div>
 
