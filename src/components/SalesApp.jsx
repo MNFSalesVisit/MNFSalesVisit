@@ -22,7 +22,6 @@ const SalesApp = () => {
   const [upliftStatus, setUpliftStatus] = useState([]);
   const [submitError, setSubmitError] = useState("");
   const [progress, setProgress] = useState({ daily: { current: 0, target: 0, percentage: 0 }, weekly: { current: 0, target: 0, percentage: 0 }, monthly: { current: 0, target: 0, percentage: 0 } });
-  const [showLocationHelp, setShowLocationHelp] = useState(false);
   
   // Form state
   const [loginForm, setLoginForm] = useState({ nationalID: "", password: "" });
@@ -255,280 +254,84 @@ const SalesApp = () => {
   };
 
   // Auto-capture location with enhanced accuracy
-  // Helper: check geolocation permission state
-  const ensureGeolocationPermission = async () => {
-    if (!navigator.geolocation) throw new Error('Geolocation not supported');
-    if (!navigator.permissions) return 'prompt';
-    try {
-      const status = await navigator.permissions.query({ name: 'geolocation' });
-      return status.state; // 'granted' | 'prompt' | 'denied'
-    } catch (e) {
-      return 'prompt';
-    }
-  };
-
   const autoCaptureLocation = () => {
-    // Faster GPS strategy: use watchPosition and accept the first reading
-    // that meets `desiredAccuracy` or fall back to a short getCurrentPosition.
-    // Configurable parameters (tuned per user's request):
-    const desiredAccuracy = 10; // meters
-    const maxWaitMs = 500; // milliseconds
-
     return new Promise((resolve, reject) => {
-      console.log('Starting fast GPS capture...');
-
+      console.log("Starting GPS capture...");
+      
       if (!navigator.geolocation) {
-        console.error('Geolocation not supported');
-        reject('GPS not supported');
+        console.error("Geolocation not supported");
+        reject("GPS not supported");
         return;
       }
 
-      let bestPos = null;
-      let settled = false;
-      let watcherId = null;
-      let timeoutId = null;
+      const allReadings = [];
+      let readingCount = 0;
+      const maxReadings = 3;
 
-      const cleanupAndResolve = (pos) => {
-        if (settled) return;
-        settled = true;
-        if (watcherId !== null) navigator.geolocation.clearWatch(watcherId);
-        if (timeoutId !== null) clearTimeout(timeoutId);
-
-        const newCoords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        setCoords(newCoords);
-        resolve(newCoords);
-      };
-
-      const onError = (err) => {
-        console.warn('watchPosition error', err);
-        // Let timeout fall back to getCurrentPosition; don't reject immediately
-      };
-
-      // Start watching for quick updates
-      try {
-        watcherId = navigator.geolocation.watchPosition(
-          (pos) => {
-            // Keep the most accurate reading seen so far
-            if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
-              bestPos = pos;
-            }
-
-            // If this reading is good enough, accept immediately
-            if (pos.coords.accuracy <= desiredAccuracy) {
-              cleanupAndResolve(pos);
-            }
-          },
-          onError,
-          { enableHighAccuracy: true, maximumAge: 0 }
-        );
-      } catch (e) {
-        console.warn('watchPosition threw', e);
-        // proceed to fallback below
-      }
-
-      // After short max wait, resolve with the best reading if any, otherwise try a short getCurrentPosition
-      timeoutId = setTimeout(() => {
-        if (bestPos) {
-          cleanupAndResolve(bestPos);
-          return;
-        }
-
-        // Try a quick getCurrentPosition before giving up
+      const collectReading = () => {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            cleanupAndResolve(pos);
+            readingCount++;
+            allReadings.push({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy
+            });
+            
+            console.log(`Reading ${readingCount}/${maxReadings} - Accuracy: ${pos.coords.accuracy.toFixed(1)}m`);
+
+            if (readingCount >= maxReadings) {
+              // Average all readings for best accuracy
+              const avgLat = allReadings.reduce((sum, r) => sum + r.latitude, 0) / allReadings.length;
+              const avgLng = allReadings.reduce((sum, r) => sum + r.longitude, 0) / allReadings.length;
+              const avgAccuracy = allReadings.reduce((sum, r) => sum + r.accuracy, 0) / allReadings.length;
+              
+              const newCoords = {
+                latitude: avgLat,
+                longitude: avgLng
+              };
+              
+              console.log(`GPS complete - ${allReadings.length} readings averaged, Avg accuracy: ${avgAccuracy.toFixed(1)}m`);
+              setCoords(newCoords);
+              resolve(newCoords);
+            } else {
+              // Get next reading after short delay
+              setTimeout(() => collectReading(), 800);
+            }
           },
           (err) => {
-            if (watcherId !== null) navigator.geolocation.clearWatch(watcherId);
-            console.error('Quick getCurrentPosition failed:', err);
-            // reject with the actual error so callers can inspect err.code (1=PERMISSION_DENIED)
-            reject(err);
+            console.error(`Reading ${readingCount + 1} failed:`, err.message);
+            
+            // If we have at least one reading, use it
+            if (allReadings.length > 0) {
+              const avgLat = allReadings.reduce((sum, r) => sum + r.latitude, 0) / allReadings.length;
+              const avgLng = allReadings.reduce((sum, r) => sum + r.longitude, 0) / allReadings.length;
+              
+              const newCoords = {
+                latitude: avgLat,
+                longitude: avgLng
+              };
+              
+              console.log(`GPS using ${allReadings.length} readings`);
+              setCoords(newCoords);
+              resolve(newCoords);
+            } else if (readingCount < maxReadings) {
+              // Try again
+              setTimeout(() => collectReading(), 800);
+            } else {
+              reject("Unable to get GPS location");
+            }
           },
-          { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
+          { 
+            enableHighAccuracy: true, 
+            timeout: 8000,
+            maximumAge: 0
+          }
         );
-      }, maxWaitMs);
-    });
-  };
-
-  // Perform the submission given capturedCoords (may be null to indicate no coords)
-  const performSubmission = async (capturedCoords) => {
-    // capturedCoords: { latitude, longitude } or null
-    try {
-      const { region, shop, sold, reason, otherReason } = visitForm;
-
-      // Handle Uplift Visit
-      if (visitForm.visitType === "Uplift") {
-        let skusPayload = [];
-        availableSKUs.forEach(sku => {
-          const qty = skuQuantities[sku];
-          if (qty > 0) skusPayload.push({ name: sku, qty });
-        });
-        if (skusPayload.length === 0) {
-          alert("Select SKU quantity");
-          setIsSubmitting(false);
-          return;
-        }
-
-        const record = {
-          nationalID: currentUser.nationalID,
-          name: currentUser.name,
-          region,
-          shopName: shop,
-          skus: skusPayload,
-          receiptPhoto: selfieData,
-          longitude: capturedCoords ? capturedCoords.longitude : null,
-          latitude: capturedCoords ? capturedCoords.latitude : null
-        };
-
-        console.log("Submitting uplift record with coordinates:", {
-          longitude: record.longitude,
-          latitude: record.latitude
-        });
-
-        try {
-          await apiService.saveUpliftVisit(record);
-
-          // Show success overlay
-          setSubmittedVisitType("Uplift");
-          setShowSuccess(true);
-          setTimeout(() => setShowSuccess(false), 1600);
-
-          // Reset form
-          setVisitForm({
-            visitType: "",
-            region: "",
-            shop: "",
-            sold: "",
-            reason: "",
-            otherReason: ""
-          });
-          setSelfieData("");
-          setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
-          // Reload dashboard
-          loadDashboard(currentUser.nationalID);
-        } catch (error) {
-          alert("Submission failed. Please try again.");
-          console.error(error);
-        } finally {
-          setIsSubmitting(false);
-        }
-        return;
-      }
-
-      // Handle Shop Visit (existing logic)
-      let skusPayload = [];
-      if (visitForm.sold === "Yes") {
-        availableSKUs.forEach(sku => {
-          const qty = skuQuantities[sku];
-          if (qty > 0) skusPayload.push({ name: sku, qty });
-        });
-        if (skusPayload.length === 0) {
-          alert("Select SKU quantity");
-          setIsSubmitting(false);
-          return;
-        }
-
-        // Calculate total cartons being sold
-        const totalCartonsToSell = skusPayload.reduce((sum, s) => sum + Number(s.qty), 0);
-
-        // Check stock balance
-        if (dashboard.stockBalance === 0) {
-          alert("Insufficient stock balance. You need to uplift stock before making a sale.");
-          setIsSubmitting(false);
-          return;
-        }
-
-        if (totalCartonsToSell > dashboard.stockBalance) {
-          alert(`Insufficient stock balance. You have ${dashboard.stockBalance} cartons available, but trying to sell ${totalCartonsToSell} cartons.`);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      let reasonVal = "";
-      if (visitForm.sold === "No") {
-        if (!visitForm.reason) {
-          alert("Select reason");
-          setIsSubmitting(false);
-          return;
-        }
-        reasonVal = visitForm.reason === "Other" ? visitForm.otherReason.trim() : visitForm.reason;
-        if (visitForm.reason === "Other" && !reasonVal) {
-          alert("Specify reason");
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      const record = {
-        nationalID: currentUser.nationalID,
-        name: currentUser.name,
-        region,
-        shopName: shop,
-        sold: visitForm.sold,
-        skus: skusPayload,
-        reason: reasonVal,
-        longitude: capturedCoords ? capturedCoords.longitude : null,
-        latitude: capturedCoords ? capturedCoords.latitude : null,
-        selfie: selfieData
       };
 
-      console.log("Submitting record with coordinates:", {
-        longitude: record.longitude,
-        latitude: record.latitude
-      });
-
-      try {
-        const result = await apiService.saveVisit(record);
-
-        // Check for SKU validation errors
-        if (!result.success && result.insufficientSKUs) {
-          const errorDetails = result.insufficientSKUs
-            .map(item => `${item.sku}: requested ${item.requested}, available ${item.available}`)
-            .join("\n");
-
-          setSubmitError(`❌ Insufficient stock:\n${errorDetails}`);
-          setIsSubmitting(false);
-          setTimeout(() => setSubmitError(""), 5000);
-          return;
-        }
-
-        if (!result.success) {
-          alert(result.message || "Submission failed. Please try again.");
-          setIsSubmitting(false);
-          return;
-        }
-
-        // Show success overlay
-        setSubmittedVisitType("Shop Visit");
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 1600);
-
-        // Reset form and error
-        setSubmitError("");
-        setVisitForm({
-          visitType: "",
-          region: "",
-          shop: "",
-          sold: "",
-          reason: "",
-          otherReason: ""
-        });
-        setSelfieData("");
-        setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
-
-        // Reload dashboard
-        loadDashboard(currentUser.nationalID);
-      } catch (error) {
-        alert("Submission failed. Please try again.");
-        console.error(error);
-      } finally {
-        setIsSubmitting(false);
-      }
-    } catch (err) {
-      console.error('performSubmission failed:', err);
-      setIsSubmitting(false);
-    }
+      collectReading();
+    });
   };
 
   // Handle form submission
@@ -547,39 +350,6 @@ const SalesApp = () => {
       return;
     }
 
-    // Check permission first so we can show user-friendly guidance if denied
-    try {
-      const perm = await ensureGeolocationPermission();
-      if (perm === 'denied') {
-        // Permissions API reports 'denied' — but the device-level location may still be on.
-        // Try a quick getCurrentPosition (short timeout) to verify whether a position can
-        // actually be obtained before showing the help modal. This avoids showing the
-        // modal when the phone's location service is on but the Permissions API state
-        // is stale or inconsistent.
-        let quickOk = false;
-        try {
-          await new Promise((res, rej) => {
-            navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 1200, maximumAge: 0 });
-          });
-          quickOk = true;
-        } catch (qErr) {
-          // If the quick check fails with PERMISSION_DENIED, show modal.
-          if (qErr && qErr.code === 1) {
-            setShowLocationHelp(true);
-            return;
-          }
-          // For TIMEOUT or POSITION_UNAVAILABLE we will proceed to the normal capture flow
-          // and allow autoCaptureLocation to handle accuracy/timeouts — do not show modal.
-        }
-
-        if (!quickOk) {
-          // proceed to attempt capture (we didn't get a quick position but also not a clear permission denial)
-        }
-      }
-    } catch (pErr) {
-      // proceed to attempt capture (permissions API may not be supported)
-    }
-
     setIsSubmitting(true);
 
     let capturedCoords;
@@ -588,24 +358,7 @@ const SalesApp = () => {
       console.log("Location captured successfully:", capturedCoords);
     } catch (e) {
       console.error("Location capture failed:", e);
-      // If the error object is a PositionError with code, handle permission specifically
-      if (e && e.code === 1) {
-        // PERMISSION_DENIED
-        setShowLocationHelp(true);
-        setIsSubmitting(false);
-        return;
-      }
-
-      // For TIMEOUT (code === 3) or POSITION_UNAVAILABLE (code === 2), show a non-blocking modal
-      // that allows Retry or Submit without location instead of a blocking alert.
-      if (e && (e.code === 2 || e.code === 3)) {
-        setShowLocationTimeoutModal(true);
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Other errors: show a generic alert
-      alert("GPS location required. Please enable location access and ensure you're in an area with good GPS signal. Error: " + (e && e.message ? e.message : e));
+      alert("GPS location required. Please enable location access and ensure you're in an area with good GPS signal. Error: " + e);
       setIsSubmitting(false);
       return;
     }
@@ -842,87 +595,6 @@ const SalesApp = () => {
       </div>
 
       <div className="container-root">
-        {/* Location help modal */}
-        {showLocationHelp && (
-          <div className="modal-backdrop" onClick={() => setShowLocationHelp(false)}>
-            <div className="location-help-modal" onClick={(e) => e.stopPropagation()}>
-              <h5>Location Permission Required</h5>
-              <p style={{ marginBottom: '8px' }}>
-                Your device location is on, but the browser has blocked location access for this site.
-              </p>
-              <div style={{ fontSize: '0.9rem', color: '#444', marginBottom: '12px' }}>
-                <strong>To enable:</strong>
-                <ul style={{ paddingLeft: '18px', marginTop: '6px' }}>
-                  <li>Android Chrome: tap the lock icon → Site settings → Location → Allow</li>
-                  <li>iOS Safari: open Settings → Safari → Location → allow for this website</li>
-                  <li>Ensure the site is loaded over HTTPS (not http) for location to work</li>
-                </ul>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button className="btn btn-light" onClick={() => setShowLocationHelp(false)}>Close</button>
-                <button
-                  className="btn btn-danger"
-                  onClick={async () => {
-                    // Re-check permissions; if not denied close modal and let user resubmit
-                    try {
-                      const p = await ensureGeolocationPermission();
-                      if (p !== 'denied') {
-                        setShowLocationHelp(false);
-                      }
-                    } catch (e) {
-                      setShowLocationHelp(false);
-                    }
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Location timeout modal (Retry or submit without location) */}
-        {showLocationTimeoutModal && (
-          <div className="modal-backdrop" onClick={() => setShowLocationTimeoutModal(false)}>
-            <div className="location-help-modal" onClick={(e) => e.stopPropagation()}>
-              <h5>Unable to get a GPS fix</h5>
-              <p style={{ marginBottom: '8px' }}>
-                We couldn't get a reliable GPS fix quickly. You can retry or submit the visit without location.
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button className="btn btn-light" onClick={() => setShowLocationTimeoutModal(false)}>Cancel</button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={async () => {
-                    // Retry: attempt to capture again and submit
-                    setShowLocationTimeoutModal(false);
-                    setIsSubmitting(true);
-                    try {
-                      const coords = await autoCaptureLocation();
-                      await performSubmission(coords);
-                    } catch (err) {
-                      // If retry fails, reopen modal
-                      setIsSubmitting(false);
-                      setShowLocationTimeoutModal(true);
-                    }
-                  }}
-                >
-                  Retry
-                </button>
-                <button
-                  className="btn btn-danger"
-                  onClick={async () => {
-                    // Submit without location
-                    setShowLocationTimeoutModal(false);
-                    setIsSubmitting(true);
-                    await performSubmission(null);
-                  }}
-                >
-                  Submit without location
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
         {/* Top Bar */}
         <div id="topHeading">
           <div className="dateText">{formatHeadingDate()}</div>
