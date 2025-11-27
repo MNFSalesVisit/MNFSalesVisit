@@ -350,6 +350,187 @@ const SalesApp = () => {
     });
   };
 
+  // Perform the submission given capturedCoords (may be null to indicate no coords)
+  const performSubmission = async (capturedCoords) => {
+    // capturedCoords: { latitude, longitude } or null
+    try {
+      const { region, shop, sold, reason, otherReason } = visitForm;
+
+      // Handle Uplift Visit
+      if (visitForm.visitType === "Uplift") {
+        let skusPayload = [];
+        availableSKUs.forEach(sku => {
+          const qty = skuQuantities[sku];
+          if (qty > 0) skusPayload.push({ name: sku, qty });
+        });
+        if (skusPayload.length === 0) {
+          alert("Select SKU quantity");
+          setIsSubmitting(false);
+          return;
+        }
+
+        const record = {
+          nationalID: currentUser.nationalID,
+          name: currentUser.name,
+          region,
+          shopName: shop,
+          skus: skusPayload,
+          receiptPhoto: selfieData,
+          longitude: capturedCoords ? capturedCoords.longitude : null,
+          latitude: capturedCoords ? capturedCoords.latitude : null
+        };
+
+        console.log("Submitting uplift record with coordinates:", {
+          longitude: record.longitude,
+          latitude: record.latitude
+        });
+
+        try {
+          await apiService.saveUpliftVisit(record);
+
+          // Show success overlay
+          setSubmittedVisitType("Uplift");
+          setShowSuccess(true);
+          setTimeout(() => setShowSuccess(false), 1600);
+
+          // Reset form
+          setVisitForm({
+            visitType: "",
+            region: "",
+            shop: "",
+            sold: "",
+            reason: "",
+            otherReason: ""
+          });
+          setSelfieData("");
+          setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
+          // Reload dashboard
+          loadDashboard(currentUser.nationalID);
+        } catch (error) {
+          alert("Submission failed. Please try again.");
+          console.error(error);
+        } finally {
+          setIsSubmitting(false);
+        }
+        return;
+      }
+
+      // Handle Shop Visit (existing logic)
+      let skusPayload = [];
+      if (visitForm.sold === "Yes") {
+        availableSKUs.forEach(sku => {
+          const qty = skuQuantities[sku];
+          if (qty > 0) skusPayload.push({ name: sku, qty });
+        });
+        if (skusPayload.length === 0) {
+          alert("Select SKU quantity");
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Calculate total cartons being sold
+        const totalCartonsToSell = skusPayload.reduce((sum, s) => sum + Number(s.qty), 0);
+
+        // Check stock balance
+        if (dashboard.stockBalance === 0) {
+          alert("Insufficient stock balance. You need to uplift stock before making a sale.");
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (totalCartonsToSell > dashboard.stockBalance) {
+          alert(`Insufficient stock balance. You have ${dashboard.stockBalance} cartons available, but trying to sell ${totalCartonsToSell} cartons.`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      let reasonVal = "";
+      if (visitForm.sold === "No") {
+        if (!visitForm.reason) {
+          alert("Select reason");
+          setIsSubmitting(false);
+          return;
+        }
+        reasonVal = visitForm.reason === "Other" ? visitForm.otherReason.trim() : visitForm.reason;
+        if (visitForm.reason === "Other" && !reasonVal) {
+          alert("Specify reason");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      const record = {
+        nationalID: currentUser.nationalID,
+        name: currentUser.name,
+        region,
+        shopName: shop,
+        sold: visitForm.sold,
+        skus: skusPayload,
+        reason: reasonVal,
+        longitude: capturedCoords ? capturedCoords.longitude : null,
+        latitude: capturedCoords ? capturedCoords.latitude : null,
+        selfie: selfieData
+      };
+
+      console.log("Submitting record with coordinates:", {
+        longitude: record.longitude,
+        latitude: record.latitude
+      });
+
+      try {
+        const result = await apiService.saveVisit(record);
+
+        // Check for SKU validation errors
+        if (!result.success && result.insufficientSKUs) {
+          const errorDetails = result.insufficientSKUs
+            .map(item => `${item.sku}: requested ${item.requested}, available ${item.available}`)
+            .join("\n");
+
+          setSubmitError(`❌ Insufficient stock:\n${errorDetails}`);
+          setIsSubmitting(false);
+          setTimeout(() => setSubmitError(""), 5000);
+          return;
+        }
+
+        if (!result.success) {
+          alert(result.message || "Submission failed. Please try again.");
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Show success overlay
+        setSubmittedVisitType("Shop Visit");
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 1600);
+
+        // Reset form and error
+        setSubmitError("");
+        setVisitForm({
+          visitType: "",
+          region: "",
+          shop: "",
+          sold: "",
+          reason: "",
+          otherReason: ""
+        });
+        setSelfieData("");
+        setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
+
+        // Reload dashboard
+        loadDashboard(currentUser.nationalID);
+      } catch (error) {
+        alert("Submission failed. Please try again.");
+        console.error(error);
+      } finally {
+        setIsSubmitting(false);
+      }
+    } catch (err) {
+      console.error('performSubmission failed:', err);
+      setIsSubmitting(false);
+    }
+  };
+
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -414,6 +595,16 @@ const SalesApp = () => {
         setIsSubmitting(false);
         return;
       }
+
+      // For TIMEOUT (code === 3) or POSITION_UNAVAILABLE (code === 2), show a non-blocking modal
+      // that allows Retry or Submit without location instead of a blocking alert.
+      if (e && (e.code === 2 || e.code === 3)) {
+        setShowLocationTimeoutModal(true);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Other errors: show a generic alert
       alert("GPS location required. Please enable location access and ensure you're in an area with good GPS signal. Error: " + (e && e.message ? e.message : e));
       setIsSubmitting(false);
       return;
@@ -684,6 +875,49 @@ const SalesApp = () => {
                   }}
                 >
                   Retry
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Location timeout modal (Retry or submit without location) */}
+        {showLocationTimeoutModal && (
+          <div className="modal-backdrop" onClick={() => setShowLocationTimeoutModal(false)}>
+            <div className="location-help-modal" onClick={(e) => e.stopPropagation()}>
+              <h5>Unable to get a GPS fix</h5>
+              <p style={{ marginBottom: '8px' }}>
+                We couldn't get a reliable GPS fix quickly. You can retry or submit the visit without location.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button className="btn btn-light" onClick={() => setShowLocationTimeoutModal(false)}>Cancel</button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    // Retry: attempt to capture again and submit
+                    setShowLocationTimeoutModal(false);
+                    setIsSubmitting(true);
+                    try {
+                      const coords = await autoCaptureLocation();
+                      await performSubmission(coords);
+                    } catch (err) {
+                      // If retry fails, reopen modal
+                      setIsSubmitting(false);
+                      setShowLocationTimeoutModal(true);
+                    }
+                  }}
+                >
+                  Retry
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={async () => {
+                    // Submit without location
+                    setShowLocationTimeoutModal(false);
+                    setIsSubmitting(true);
+                    await performSubmission(null);
+                  }}
+                >
+                  Submit without location
                 </button>
               </div>
             </div>
