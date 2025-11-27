@@ -370,8 +370,30 @@ const SalesApp = () => {
     try {
       const perm = await ensureGeolocationPermission();
       if (perm === 'denied') {
-        setShowLocationHelp(true);
-        return;
+        // Permissions API reports 'denied' — but the device-level location may still be on.
+        // Try a quick getCurrentPosition (short timeout) to verify whether a position can
+        // actually be obtained before showing the help modal. This avoids showing the
+        // modal when the phone's location service is on but the Permissions API state
+        // is stale or inconsistent.
+        let quickOk = false;
+        try {
+          await new Promise((res, rej) => {
+            navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 1200, maximumAge: 0 });
+          });
+          quickOk = true;
+        } catch (qErr) {
+          // If the quick check fails with PERMISSION_DENIED, show modal.
+          if (qErr && qErr.code === 1) {
+            setShowLocationHelp(true);
+            return;
+          }
+          // For TIMEOUT or POSITION_UNAVAILABLE we will proceed to the normal capture flow
+          // and allow autoCaptureLocation to handle accuracy/timeouts — do not show modal.
+        }
+
+        if (!quickOk) {
+          // proceed to attempt capture (we didn't get a quick position but also not a clear permission denial)
+        }
       }
     } catch (pErr) {
       // proceed to attempt capture (permissions API may not be supported)
