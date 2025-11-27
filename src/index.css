@@ -203,3 +203,24 @@ label{
   }
   #topHeading .dateText { font-size:13px; }
 }
+
+/* Modal for location help */
+.modal-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.45);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:3000;
+}
+.location-help-modal{
+  background:var(--bg);
+  color:var(--text);
+  padding:16px;
+  border-radius:10px;
+  width: min(520px, 92%);
+  box-shadow: var(--shadow);
+}
+.location-help-modal h5{ margin:0 0 8px 0; }
+.location-help-modal ul{ margin:0; }

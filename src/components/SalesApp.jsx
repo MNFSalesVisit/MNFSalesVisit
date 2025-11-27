@@ -22,6 +22,7 @@ const SalesApp = () => {
   const [upliftStatus, setUpliftStatus] = useState([]);
   const [submitError, setSubmitError] = useState("");
   const [progress, setProgress] = useState({ daily: { current: 0, target: 0, percentage: 0 }, weekly: { current: 0, target: 0, percentage: 0 }, monthly: { current: 0, target: 0, percentage: 0 } });
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
   
   // Form state
   const [loginForm, setLoginForm] = useState({ nationalID: "", password: "" });
@@ -254,6 +255,18 @@ const SalesApp = () => {
   };
 
   // Auto-capture location with enhanced accuracy
+  // Helper: check geolocation permission state
+  const ensureGeolocationPermission = async () => {
+    if (!navigator.geolocation) throw new Error('Geolocation not supported');
+    if (!navigator.permissions) return 'prompt';
+    try {
+      const status = await navigator.permissions.query({ name: 'geolocation' });
+      return status.state; // 'granted' | 'prompt' | 'denied'
+    } catch (e) {
+      return 'prompt';
+    }
+  };
+
   const autoCaptureLocation = () => {
     // Faster GPS strategy: use watchPosition and accept the first reading
     // that meets `desiredAccuracy` or fall back to a short getCurrentPosition.
@@ -328,7 +341,8 @@ const SalesApp = () => {
           (err) => {
             if (watcherId !== null) navigator.geolocation.clearWatch(watcherId);
             console.error('Quick getCurrentPosition failed:', err);
-            reject('Unable to get GPS location');
+            // reject with the actual error so callers can inspect err.code (1=PERMISSION_DENIED)
+            reject(err);
           },
           { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
         );
@@ -352,6 +366,17 @@ const SalesApp = () => {
       return;
     }
 
+    // Check permission first so we can show user-friendly guidance if denied
+    try {
+      const perm = await ensureGeolocationPermission();
+      if (perm === 'denied') {
+        setShowLocationHelp(true);
+        return;
+      }
+    } catch (pErr) {
+      // proceed to attempt capture (permissions API may not be supported)
+    }
+
     setIsSubmitting(true);
 
     let capturedCoords;
@@ -360,7 +385,14 @@ const SalesApp = () => {
       console.log("Location captured successfully:", capturedCoords);
     } catch (e) {
       console.error("Location capture failed:", e);
-      alert("GPS location required. Please enable location access and ensure you're in an area with good GPS signal. Error: " + e);
+      // If the error object is a PositionError with code, handle permission specifically
+      if (e && e.code === 1) {
+        // PERMISSION_DENIED
+        setShowLocationHelp(true);
+        setIsSubmitting(false);
+        return;
+      }
+      alert("GPS location required. Please enable location access and ensure you're in an area with good GPS signal. Error: " + (e && e.message ? e.message : e));
       setIsSubmitting(false);
       return;
     }
@@ -597,6 +629,44 @@ const SalesApp = () => {
       </div>
 
       <div className="container-root">
+        {/* Location help modal */}
+        {showLocationHelp && (
+          <div className="modal-backdrop" onClick={() => setShowLocationHelp(false)}>
+            <div className="location-help-modal" onClick={(e) => e.stopPropagation()}>
+              <h5>Location Permission Required</h5>
+              <p style={{ marginBottom: '8px' }}>
+                Your device location is on, but the browser has blocked location access for this site.
+              </p>
+              <div style={{ fontSize: '0.9rem', color: '#444', marginBottom: '12px' }}>
+                <strong>To enable:</strong>
+                <ul style={{ paddingLeft: '18px', marginTop: '6px' }}>
+                  <li>Android Chrome: tap the lock icon → Site settings → Location → Allow</li>
+                  <li>iOS Safari: open Settings → Safari → Location → allow for this website</li>
+                  <li>Ensure the site is loaded over HTTPS (not http) for location to work</li>
+                </ul>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button className="btn btn-light" onClick={() => setShowLocationHelp(false)}>Close</button>
+                <button
+                  className="btn btn-danger"
+                  onClick={async () => {
+                    // Re-check permissions; if not denied close modal and let user resubmit
+                    try {
+                      const p = await ensureGeolocationPermission();
+                      if (p !== 'denied') {
+                        setShowLocationHelp(false);
+                      }
+                    } catch (e) {
+                      setShowLocationHelp(false);
+                    }
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Top Bar */}
         <div id="topHeading">
           <div className="dateText">{formatHeadingDate()}</div>
