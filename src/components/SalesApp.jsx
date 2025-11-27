@@ -255,82 +255,84 @@ const SalesApp = () => {
 
   // Auto-capture location with enhanced accuracy
   const autoCaptureLocation = () => {
+    // Faster GPS strategy: use watchPosition and accept the first reading
+    // that meets `desiredAccuracy` or fall back to a short getCurrentPosition.
+    // Configurable parameters (tuned per user's request):
+    const desiredAccuracy = 10; // meters
+    const maxWaitMs = 500; // milliseconds
+
     return new Promise((resolve, reject) => {
-      console.log("Starting GPS capture...");
-      
+      console.log('Starting fast GPS capture...');
+
       if (!navigator.geolocation) {
-        console.error("Geolocation not supported");
-        reject("GPS not supported");
+        console.error('Geolocation not supported');
+        reject('GPS not supported');
         return;
       }
 
-      const allReadings = [];
-      let readingCount = 0;
-      const maxReadings = 3;
+      let bestPos = null;
+      let settled = false;
+      let watcherId = null;
+      let timeoutId = null;
 
-      const collectReading = () => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            readingCount++;
-            allReadings.push({
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracy: pos.coords.accuracy
-            });
-            
-            console.log(`Reading ${readingCount}/${maxReadings} - Accuracy: ${pos.coords.accuracy.toFixed(1)}m`);
+      const cleanupAndResolve = (pos) => {
+        if (settled) return;
+        settled = true;
+        if (watcherId !== null) navigator.geolocation.clearWatch(watcherId);
+        if (timeoutId !== null) clearTimeout(timeoutId);
 
-            if (readingCount >= maxReadings) {
-              // Average all readings for best accuracy
-              const avgLat = allReadings.reduce((sum, r) => sum + r.latitude, 0) / allReadings.length;
-              const avgLng = allReadings.reduce((sum, r) => sum + r.longitude, 0) / allReadings.length;
-              const avgAccuracy = allReadings.reduce((sum, r) => sum + r.accuracy, 0) / allReadings.length;
-              
-              const newCoords = {
-                latitude: avgLat,
-                longitude: avgLng
-              };
-              
-              console.log(`GPS complete - ${allReadings.length} readings averaged, Avg accuracy: ${avgAccuracy.toFixed(1)}m`);
-              setCoords(newCoords);
-              resolve(newCoords);
-            } else {
-              // Get next reading after short delay
-              setTimeout(() => collectReading(), 800);
-            }
-          },
-          (err) => {
-            console.error(`Reading ${readingCount + 1} failed:`, err.message);
-            
-            // If we have at least one reading, use it
-            if (allReadings.length > 0) {
-              const avgLat = allReadings.reduce((sum, r) => sum + r.latitude, 0) / allReadings.length;
-              const avgLng = allReadings.reduce((sum, r) => sum + r.longitude, 0) / allReadings.length;
-              
-              const newCoords = {
-                latitude: avgLat,
-                longitude: avgLng
-              };
-              
-              console.log(`GPS using ${allReadings.length} readings`);
-              setCoords(newCoords);
-              resolve(newCoords);
-            } else if (readingCount < maxReadings) {
-              // Try again
-              setTimeout(() => collectReading(), 800);
-            } else {
-              reject("Unable to get GPS location");
-            }
-          },
-          { 
-            enableHighAccuracy: true, 
-            timeout: 8000,
-            maximumAge: 0
-          }
-        );
+        const newCoords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        setCoords(newCoords);
+        resolve(newCoords);
       };
 
-      collectReading();
+      const onError = (err) => {
+        console.warn('watchPosition error', err);
+        // Let timeout fall back to getCurrentPosition; don't reject immediately
+      };
+
+      // Start watching for quick updates
+      try {
+        watcherId = navigator.geolocation.watchPosition(
+          (pos) => {
+            // Keep the most accurate reading seen so far
+            if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+              bestPos = pos;
+            }
+
+            // If this reading is good enough, accept immediately
+            if (pos.coords.accuracy <= desiredAccuracy) {
+              cleanupAndResolve(pos);
+            }
+          },
+          onError,
+          { enableHighAccuracy: true, maximumAge: 0 }
+        );
+      } catch (e) {
+        console.warn('watchPosition threw', e);
+        // proceed to fallback below
+      }
+
+      // After short max wait, resolve with the best reading if any, otherwise try a short getCurrentPosition
+      timeoutId = setTimeout(() => {
+        if (bestPos) {
+          cleanupAndResolve(bestPos);
+          return;
+        }
+
+        // Try a quick getCurrentPosition before giving up
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            cleanupAndResolve(pos);
+          },
+          (err) => {
+            if (watcherId !== null) navigator.geolocation.clearWatch(watcherId);
+            console.error('Quick getCurrentPosition failed:', err);
+            reject('Unable to get GPS location');
+          },
+          { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
+        );
+      }, maxWaitMs);
     });
   };
 
