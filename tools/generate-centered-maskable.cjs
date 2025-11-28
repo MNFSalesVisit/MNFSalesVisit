@@ -41,7 +41,7 @@ async function makeVariants() {
     const bbox = await detectNonTransparentBBox(srcBuffer);
 
     const SIZE = 512;
-    const variants = [0.72, 0.64, 0.56];
+    const variants = [0.72, 0.68, 0.64, 0.56];
 
     // extract the visible area
     const croppedBuf = await sharp(srcBuffer).extract(bbox).png().toBuffer();
