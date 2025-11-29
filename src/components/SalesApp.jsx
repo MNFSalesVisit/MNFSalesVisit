@@ -139,7 +139,7 @@ const SalesApp = () => {
   };
 
   // Start camera
-  const startCamera = async (facingMode = "user") => {
+  const startCamera = async (facingMode) => {
     try {
       // Stop existing stream completely
       if (videoRef.current && videoRef.current.srcObject) {
@@ -154,9 +154,20 @@ const SalesApp = () => {
       // Small delay to ensure camera is released
       await new Promise(resolve => setTimeout(resolve, 100));
       
+      // Determine facing if not provided: prefer visit type selection
+      let desiredFacing = facingMode;
+      if (!desiredFacing) {
+        if (visitForm.visitType === "Uplift") desiredFacing = "environment";
+        else if (visitForm.visitType === "Shop Visit") desiredFacing = "user";
+        else desiredFacing = cameraFacing || "user";
+      }
+
+      // persist chosen facing to state for consistency
+      try { setCameraFacing(desiredFacing); } catch (e) { /* ignore */ }
+
       // Use exact constraint to force camera selection with portrait rectangle aspect ratio
       const constraints = {
-        video: facingMode === "environment" 
+        video: desiredFacing === "environment"
           ? { facingMode: { exact: "environment" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
           : { facingMode: "user", aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
       };
@@ -166,7 +177,57 @@ const SalesApp = () => {
         videoRef.current.srcObject = stream;
       }
     } catch (error) {
-      console.error('Camera access failed:', error);
+      console.warn('Primary camera request failed, attempting device fallback...', error);
+
+      // Fallback: enumerate devices and pick a matching videoinput by label or position
+      try {
+        let devices = await navigator.mediaDevices.enumerateDevices();
+        let cams = devices.filter(d => d.kind === 'videoinput');
+
+        // If device labels are empty (common before permission), request a quick permission prompt
+        const labelsPresent = cams.some(d => d.label && d.label.length > 0);
+        let tempStream;
+        if (!labelsPresent) {
+          try {
+            tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            // stop temporary stream immediately
+            tempStream.getTracks().forEach(t => t.stop());
+            devices = await navigator.mediaDevices.enumerateDevices();
+            cams = devices.filter(d => d.kind === 'videoinput');
+          } catch (permErr) {
+            // if even requesting permission fails, rethrow original
+            console.warn('Temporary permission request failed during fallback:', permErr);
+          }
+        }
+
+        if (!cams || cams.length === 0) throw error;
+
+        const desired = (facingMode || cameraFacing || (visitForm.visitType === 'Uplift' ? 'environment' : 'user'));
+        const search = desired === 'environment' ? ['back', 'rear', 'environment'] : ['front', 'user', 'selfie'];
+
+        let match = cams.find(d => {
+          const label = (d.label || '').toLowerCase();
+          return search.some(s => label.includes(s));
+        });
+
+        // If no label match, pick by position: often the last device is rear on many phones
+        if (!match) {
+          match = desired === 'environment' ? cams[cams.length - 1] : cams[0];
+        }
+
+        if (!match) throw new Error('No suitable camera found');
+
+        const deviceConstraints = {
+          video: { deviceId: { exact: match.deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
+        };
+
+        const fallbackStream = await navigator.mediaDevices.getUserMedia(deviceConstraints);
+        if (videoRef.current) {
+          videoRef.current.srcObject = fallbackStream;
+        }
+      } catch (fallbackErr) {
+        console.error('Camera fallback failed:', fallbackErr);
+      }
     }
   };
 
@@ -972,32 +1033,6 @@ const SalesApp = () => {
                     muted 
                     playsInline
                   />
-                  <button
-                    type="button"
-                    onClick={flipCamera}
-                    disabled={isSwitchingCamera}
-                    style={{
-                      position: 'absolute',
-                      top: '10px',
-                      right: '10px',
-                      background: isSwitchingCamera ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.5)',
-                      border: 'none',
-                      borderRadius: '50%',
-                      width: '40px',
-                      height: '40px',
-                      color: 'white',
-                      fontSize: '20px',
-                      cursor: isSwitchingCamera ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      zIndex: 10,
-                      opacity: isSwitchingCamera ? 0.6 : 1
-                    }}
-                    title="Switch Camera"
-                  >
-                    {isSwitchingCamera ? '⏳' : '🔄'}
-                  </button>
                 </div>
 
                 <div className="text-center mt-3">

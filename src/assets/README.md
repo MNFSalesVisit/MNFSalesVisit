@@ -6,3 +6,5 @@ The app expects two PNG files:
 - `icon-512.png` (512x512)  — used for higher-resolution devices
 
 You provided a logo image via the conversation attachments. Please copy that image into this folder with the above filenames (you can resize it to 192x192 and 512x512). Once the PNG files are present, browsers will use them when users Add to Home Screen.
+!'icon-192.png'(<Indomie_Logo (1).png>)
+!'icon-512.png'(<Indomie_Logo (1)-1.png>)
