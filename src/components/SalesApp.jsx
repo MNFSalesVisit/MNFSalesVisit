@@ -187,30 +187,75 @@ const SalesApp = () => {
         }
       }
 
-      // Aggressive best-guess: try the most likely deviceId quickly (last for rear, first for front)
+      // Aggressive fast-path: try heuristic deviceId and facingMode in parallel and use the first successful stream
       try {
         const devicesQuick = await navigator.mediaDevices.enumerateDevices();
         const camsQuick = devicesQuick.filter(d => d.kind === 'videoinput');
         if (camsQuick && camsQuick.length > 0) {
           const guess = desiredFacing === 'environment' ? camsQuick[camsQuick.length - 1] : camsQuick[0];
-          if (guess && guess.deviceId) {
-            try {
-              console.log('Trying heuristic deviceId for quick open:', guess.deviceId);
-              const guessStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: guess.deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } });
-              if (videoRef.current) videoRef.current.srcObject = guessStream;
-              // cache and return
-              const updated = { ...cameraDeviceIds, [desiredFacing]: guess.deviceId };
+
+          const makeGuessPromise = async () => {
+            if (!guess || !guess.deviceId) throw new Error('no-guess');
+            const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: guess.deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } });
+            return { stream: s, source: 'guess', deviceId: guess.deviceId };
+          };
+
+          const makeFacingPromise = async () => {
+            const c = desiredFacing === 'environment'
+              ? { video: { facingMode: { ideal: 'environment' }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } }
+              : { video: { facingMode: { ideal: 'user' }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } };
+            const s = await navigator.mediaDevices.getUserMedia(c);
+            return { stream: s, source: 'facing' };
+          };
+
+          // Use Promise.any to take the first fulfilled promise (first successful stream)
+          const attempts = [];
+          attempts.push(makeFacingPromise());
+          attempts.push(makeGuessPromise());
+
+          let winner;
+          try {
+            winner = await Promise.any(attempts);
+          } catch (anyErr) {
+            // all failed, fall through to older fallback logic
+            console.warn('Parallel attempts all failed:', anyErr);
+            winner = null;
+          }
+
+          if (winner && winner.stream) {
+            if (videoRef.current) videoRef.current.srcObject = winner.stream;
+            // cache deviceId if guess succeeded
+            if (winner.source === 'guess' && winner.deviceId) {
+              const updated = { ...cameraDeviceIds, [desiredFacing]: winner.deviceId };
               setCameraDeviceIds(updated);
               try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
-              setCameraFacing(desiredFacing);
-              return;
-            } catch (gErr) {
-              console.warn('Heuristic deviceId open failed, continuing to ideal facingMode:', gErr);
+            } else {
+              // attempt to read deviceId from track settings and cache
+              try {
+                const settings = winner.stream.getVideoTracks()[0].getSettings ? winner.stream.getVideoTracks()[0].getSettings() : {};
+                if (settings.deviceId) {
+                  const updated = { ...cameraDeviceIds, [desiredFacing]: settings.deviceId };
+                  setCameraDeviceIds(updated);
+                  try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
+                }
+              } catch (e) { /* ignore */ }
             }
+
+            // stop any other streams when they resolve
+            Promise.all(attempts.map(p => p.catch(() => null))).then(results => {
+              results.forEach(r => {
+                if (r && r.stream && r.stream !== winner.stream) {
+                  try { r.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+                }
+              });
+            }).catch(() => { /* ignore */ });
+
+            setCameraFacing(desiredFacing);
+            return;
           }
         }
-      } catch (enumErr) {
-        console.warn('Heuristic enumerateDevices failed:', enumErr);
+      } catch (err) {
+        console.warn('Heuristic parallel attempt failed:', err);
       }
 
       // Use ideal constraint (more compatible than exact) to prefer a camera
