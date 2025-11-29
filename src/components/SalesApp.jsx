@@ -17,6 +17,12 @@ const SalesApp = () => {
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
   const [cameraFacing, setCameraFacing] = useState("user");
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  const [cameraDeviceIds, setCameraDeviceIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem('mnf_camera_deviceIds');
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0, stockBalance: 0, stockBalanceBySKU: {} });
   const [upliftStatus, setUpliftStatus] = useState([]);
@@ -165,6 +171,22 @@ const SalesApp = () => {
       // persist chosen facing to state for consistency
       try { setCameraFacing(desiredFacing); } catch (e) { /* ignore */ }
 
+      // Try fast path: if we previously discovered a deviceId for this facing, try it first
+      const cachedId = cameraDeviceIds[desiredFacing];
+      if (cachedId) {
+        try {
+          const deviceConstraintsFast = { video: { deviceId: { exact: cachedId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } };
+          const fastStream = await navigator.mediaDevices.getUserMedia(deviceConstraintsFast);
+          if (videoRef.current) videoRef.current.srcObject = fastStream;
+          // ensure we recorded chosen facing
+          setCameraFacing(desiredFacing);
+          return;
+        } catch (fastErr) {
+          // cached id failed (maybe removed); fall through to ideal/fallback
+          console.warn('Cached camera deviceId failed, falling back:', fastErr);
+        }
+      }
+
       // Use ideal constraint (more compatible than exact) to prefer a camera
       const constraints = {
         video: desiredFacing === "environment"
@@ -176,6 +198,18 @@ const SalesApp = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+
+      // try to capture deviceId from returned track and cache it
+      try {
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings ? track.getSettings() : {};
+        const devId = settings.deviceId;
+        if (devId) {
+          const updated = { ...cameraDeviceIds, [desiredFacing]: devId };
+          setCameraDeviceIds(updated);
+          try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
+        }
+      } catch (e) { /* ignore */ }
     } catch (error) {
       console.warn('Primary camera request failed, attempting device fallback...', error);
 
@@ -259,6 +293,13 @@ const SalesApp = () => {
         if (videoRef.current) {
           videoRef.current.srcObject = fallbackStream;
         }
+
+        // cache match.deviceId for this facing so future opens are instant
+        try {
+          const updated = { ...cameraDeviceIds, [desired]: match.deviceId };
+          setCameraDeviceIds(updated);
+          try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
       } catch (fallbackErr) {
         console.error('Camera fallback failed:', fallbackErr);
       }
