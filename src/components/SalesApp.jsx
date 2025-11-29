@@ -165,13 +165,13 @@ const SalesApp = () => {
       // persist chosen facing to state for consistency
       try { setCameraFacing(desiredFacing); } catch (e) { /* ignore */ }
 
-      // Use exact constraint to force camera selection with portrait rectangle aspect ratio
+      // Use ideal constraint (more compatible than exact) to prefer a camera
       const constraints = {
         video: desiredFacing === "environment"
-          ? { facingMode: { exact: "environment" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
-          : { facingMode: "user", aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
+          ? { facingMode: { ideal: "environment" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
+          : { facingMode: { ideal: "user" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
       };
-      
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -205,12 +205,46 @@ const SalesApp = () => {
         const desired = (facingMode || cameraFacing || (visitForm.visitType === 'Uplift' ? 'environment' : 'user'));
         const search = desired === 'environment' ? ['back', 'rear', 'environment'] : ['front', 'user', 'selfie'];
 
+        // Try label matching first
         let match = cams.find(d => {
           const label = (d.label || '').toLowerCase();
           return search.some(s => label.includes(s));
         });
 
-        // If no label match, pick by position: often the last device is rear on many phones
+        // If no label match, probe devices sequentially (short timeout per probe) to determine facing
+        if (!match) {
+          const probeTimeoutMs = 2000; // 2 seconds per device
+
+          const probeDevice = async (deviceId, cam) => {
+            try {
+              const constraintsProbe = { video: { deviceId: { exact: deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } };
+              const p = navigator.mediaDevices.getUserMedia(constraintsProbe);
+              const timer = new Promise((_, rej) => setTimeout(() => rej(new Error('probe timeout')), probeTimeoutMs));
+              const s = await Promise.race([p, timer]);
+              const track = s.getVideoTracks()[0];
+              let settings = {};
+              try { settings = track.getSettings ? track.getSettings() : {}; } catch (e) { /* ignore */ }
+              // stop probe tracks
+              s.getTracks().forEach(t => t.stop());
+
+              const label = (cam.label || '').toLowerCase();
+              const trackFacing = (settings.facingMode || '').toLowerCase();
+
+              const foundBySetting = trackFacing && trackFacing.includes(desired);
+              const foundByLabel = search.some(sTerm => label.includes(sTerm));
+              return foundBySetting || foundByLabel;
+            } catch (err) {
+              return false;
+            }
+          };
+
+          for (const cam of cams) {
+            const ok = await probeDevice(cam.deviceId, cam);
+            if (ok) { match = cam; break; }
+          }
+        }
+
+        // If still no match, fall back to position heuristic
         if (!match) {
           match = desired === 'environment' ? cams[cams.length - 1] : cams[0];
         }
