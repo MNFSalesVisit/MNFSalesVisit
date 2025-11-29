@@ -245,9 +245,15 @@ const SalesApp = () => {
           return search.some(s => label.includes(s));
         });
 
-        // If no label match, probe devices sequentially (short timeout per probe) to determine facing
+        // If no label match, probe a short list of likely candidates (fast) to determine facing
         if (!match) {
-          const probeTimeoutMs = 2000; // 2 seconds per device
+          // Limit probing to a few candidates to avoid long delays
+          const maxCandidates = 3;
+          // Prefer ordering: for environment try reverse (often rear is last), for user try normal order
+          const ordered = desired === 'environment' ? [...cams].reverse() : cams.slice();
+          const candidates = ordered.slice(0, Math.min(maxCandidates, ordered.length));
+
+          const probeTimeoutMs = 1500; // 1.5 seconds per device for faster responsiveness
 
           const probeDevice = async (deviceId, cam) => {
             try {
@@ -272,7 +278,7 @@ const SalesApp = () => {
             }
           };
 
-          for (const cam of cams) {
+          for (const cam of candidates) {
             const ok = await probeDevice(cam.deviceId, cam);
             if (ok) { match = cam; break; }
           }
