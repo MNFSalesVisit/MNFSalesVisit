@@ -17,12 +17,6 @@ const SalesApp = () => {
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
   const [cameraFacing, setCameraFacing] = useState("user");
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
-  const [cameraDeviceIds, setCameraDeviceIds] = useState(() => {
-    try {
-      const raw = localStorage.getItem('mnf_camera_deviceIds');
-      return raw ? JSON.parse(raw) : {};
-    } catch (e) { return {}; }
-  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dashboard, setDashboard] = useState({ visitsMTD: 0, soldMTD: 0, cartonsMTD: 0, efficiency: 0, stockBalance: 0, stockBalanceBySKU: {} });
   const [upliftStatus, setUpliftStatus] = useState([]);
@@ -145,7 +139,7 @@ const SalesApp = () => {
   };
 
   // Start camera
-  const startCamera = async (facingMode) => {
+  const startCamera = async (facingMode = "user") => {
     try {
       // Stop existing stream completely
       if (videoRef.current && videoRef.current.srcObject) {
@@ -160,226 +154,19 @@ const SalesApp = () => {
       // Small delay to ensure camera is released
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Determine facing if not provided: prefer visit type selection
-      let desiredFacing = facingMode;
-      if (!desiredFacing) {
-        if (visitForm.visitType === "Uplift") desiredFacing = "environment";
-        else if (visitForm.visitType === "Shop Visit") desiredFacing = "user";
-        else desiredFacing = cameraFacing || "user";
-      }
-
-      // persist chosen facing to state for consistency
-      try { setCameraFacing(desiredFacing); } catch (e) { /* ignore */ }
-
-      // Try fast path: if we previously discovered a deviceId for this facing, try it first
-      const cachedId = cameraDeviceIds[desiredFacing];
-      if (cachedId) {
-        try {
-          const deviceConstraintsFast = { video: { deviceId: { exact: cachedId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } };
-          const fastStream = await navigator.mediaDevices.getUserMedia(deviceConstraintsFast);
-          if (videoRef.current) videoRef.current.srcObject = fastStream;
-          // ensure we recorded chosen facing
-          setCameraFacing(desiredFacing);
-          return;
-        } catch (fastErr) {
-          // cached id failed (maybe removed); fall through to ideal/fallback
-          console.warn('Cached camera deviceId failed, falling back:', fastErr);
-        }
-      }
-
-      // Aggressive fast-path: try heuristic deviceId and facingMode in parallel and use the first successful stream
-      try {
-        const devicesQuick = await navigator.mediaDevices.enumerateDevices();
-        const camsQuick = devicesQuick.filter(d => d.kind === 'videoinput');
-        if (camsQuick && camsQuick.length > 0) {
-          const guess = desiredFacing === 'environment' ? camsQuick[camsQuick.length - 1] : camsQuick[0];
-
-          const makeGuessPromise = async () => {
-            if (!guess || !guess.deviceId) throw new Error('no-guess');
-            const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: guess.deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } });
-            return { stream: s, source: 'guess', deviceId: guess.deviceId };
-          };
-
-          const makeFacingPromise = async () => {
-            const c = desiredFacing === 'environment'
-              ? { video: { facingMode: { ideal: 'environment' }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } }
-              : { video: { facingMode: { ideal: 'user' }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } };
-            const s = await navigator.mediaDevices.getUserMedia(c);
-            return { stream: s, source: 'facing' };
-          };
-
-          // Use Promise.any to take the first fulfilled promise (first successful stream)
-          const attempts = [];
-          attempts.push(makeFacingPromise());
-          attempts.push(makeGuessPromise());
-
-          let winner;
-          try {
-            winner = await Promise.any(attempts);
-          } catch (anyErr) {
-            // all failed, fall through to older fallback logic
-            console.warn('Parallel attempts all failed:', anyErr);
-            winner = null;
-          }
-
-          if (winner && winner.stream) {
-            if (videoRef.current) videoRef.current.srcObject = winner.stream;
-            // cache deviceId if guess succeeded
-            if (winner.source === 'guess' && winner.deviceId) {
-              const updated = { ...cameraDeviceIds, [desiredFacing]: winner.deviceId };
-              setCameraDeviceIds(updated);
-              try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
-            } else {
-              // attempt to read deviceId from track settings and cache
-              try {
-                const settings = winner.stream.getVideoTracks()[0].getSettings ? winner.stream.getVideoTracks()[0].getSettings() : {};
-                if (settings.deviceId) {
-                  const updated = { ...cameraDeviceIds, [desiredFacing]: settings.deviceId };
-                  setCameraDeviceIds(updated);
-                  try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
-                }
-              } catch (e) { /* ignore */ }
-            }
-
-            // stop any other streams when they resolve
-            Promise.all(attempts.map(p => p.catch(() => null))).then(results => {
-              results.forEach(r => {
-                if (r && r.stream && r.stream !== winner.stream) {
-                  try { r.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
-                }
-              });
-            }).catch(() => { /* ignore */ });
-
-            setCameraFacing(desiredFacing);
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('Heuristic parallel attempt failed:', err);
-      }
-
-      // Use ideal constraint (more compatible than exact) to prefer a camera
+      // Use exact constraint to force camera selection with portrait rectangle aspect ratio
       const constraints = {
-        video: desiredFacing === "environment"
-          ? { facingMode: { ideal: "environment" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
-          : { facingMode: { ideal: "user" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
+        video: facingMode === "environment" 
+          ? { facingMode: { exact: "environment" }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
+          : { facingMode: "user", aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
       };
-
+      
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-
-      // try to capture deviceId from returned track and cache it
-      try {
-        const track = stream.getVideoTracks()[0];
-        const settings = track.getSettings ? track.getSettings() : {};
-        const devId = settings.deviceId;
-        if (devId) {
-          const updated = { ...cameraDeviceIds, [desiredFacing]: devId };
-          setCameraDeviceIds(updated);
-          try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
-        }
-      } catch (e) { /* ignore */ }
     } catch (error) {
-      console.warn('Primary camera request failed, attempting device fallback...', error);
-
-      // Fallback: enumerate devices and pick a matching videoinput by label or position
-      try {
-        let devices = await navigator.mediaDevices.enumerateDevices();
-        let cams = devices.filter(d => d.kind === 'videoinput');
-
-        // If device labels are empty (common before permission), request a quick permission prompt
-        const labelsPresent = cams.some(d => d.label && d.label.length > 0);
-        let tempStream;
-        if (!labelsPresent) {
-          try {
-            tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            // stop temporary stream immediately
-            tempStream.getTracks().forEach(t => t.stop());
-            devices = await navigator.mediaDevices.enumerateDevices();
-            cams = devices.filter(d => d.kind === 'videoinput');
-          } catch (permErr) {
-            // if even requesting permission fails, rethrow original
-            console.warn('Temporary permission request failed during fallback:', permErr);
-          }
-        }
-
-        if (!cams || cams.length === 0) throw error;
-
-        const desired = (facingMode || cameraFacing || (visitForm.visitType === 'Uplift' ? 'environment' : 'user'));
-        const search = desired === 'environment' ? ['back', 'rear', 'environment'] : ['front', 'user', 'selfie'];
-
-        // Try label matching first
-        let match = cams.find(d => {
-          const label = (d.label || '').toLowerCase();
-          return search.some(s => label.includes(s));
-        });
-
-        // If no label match, probe a short list of likely candidates (fast) to determine facing
-        if (!match) {
-          // Limit probing to a few candidates to avoid long delays
-          const maxCandidates = 3;
-          // Prefer ordering: for environment try reverse (often rear is last), for user try normal order
-          const ordered = desired === 'environment' ? [...cams].reverse() : cams.slice();
-          const candidates = ordered.slice(0, Math.min(maxCandidates, ordered.length));
-
-          const probeTimeoutMs = 1500; // 1.5 seconds per device for faster responsiveness
-
-          const probeDevice = async (deviceId, cam) => {
-            try {
-              const constraintsProbe = { video: { deviceId: { exact: deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } };
-              const p = navigator.mediaDevices.getUserMedia(constraintsProbe);
-              const timer = new Promise((_, rej) => setTimeout(() => rej(new Error('probe timeout')), probeTimeoutMs));
-              const s = await Promise.race([p, timer]);
-              const track = s.getVideoTracks()[0];
-              let settings = {};
-              try { settings = track.getSettings ? track.getSettings() : {}; } catch (e) { /* ignore */ }
-              // stop probe tracks
-              s.getTracks().forEach(t => t.stop());
-
-              const label = (cam.label || '').toLowerCase();
-              const trackFacing = (settings.facingMode || '').toLowerCase();
-
-              const foundBySetting = trackFacing && trackFacing.includes(desired);
-              const foundByLabel = search.some(sTerm => label.includes(sTerm));
-              return foundBySetting || foundByLabel;
-            } catch (err) {
-              return false;
-            }
-          };
-
-          for (const cam of candidates) {
-            const ok = await probeDevice(cam.deviceId, cam);
-            if (ok) { match = cam; break; }
-          }
-        }
-
-        // If still no match, fall back to position heuristic
-        if (!match) {
-          match = desired === 'environment' ? cams[cams.length - 1] : cams[0];
-        }
-
-        if (!match) throw new Error('No suitable camera found');
-
-        const deviceConstraints = {
-          video: { deviceId: { exact: match.deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } }
-        };
-
-        const fallbackStream = await navigator.mediaDevices.getUserMedia(deviceConstraints);
-        if (videoRef.current) {
-          videoRef.current.srcObject = fallbackStream;
-        }
-
-        // cache match.deviceId for this facing so future opens are instant
-        try {
-          const updated = { ...cameraDeviceIds, [desired]: match.deviceId };
-          setCameraDeviceIds(updated);
-          try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
-        } catch (e) { /* ignore */ }
-      } catch (fallbackErr) {
-        console.error('Camera fallback failed:', fallbackErr);
-      }
+      console.error('Camera access failed:', error);
     }
   };
 
@@ -1185,6 +972,32 @@ const SalesApp = () => {
                     muted 
                     playsInline
                   />
+                  <button
+                    type="button"
+                    onClick={flipCamera}
+                    disabled={isSwitchingCamera}
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      background: isSwitchingCamera ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.5)',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: '40px',
+                      height: '40px',
+                      color: 'white',
+                      fontSize: '20px',
+                      cursor: isSwitchingCamera ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 10,
+                      opacity: isSwitchingCamera ? 0.6 : 1
+                    }}
+                    title="Switch Camera"
+                  >
+                    {isSwitchingCamera ? '⏳' : '🔄'}
+                  </button>
                 </div>
 
                 <div className="text-center mt-3">
