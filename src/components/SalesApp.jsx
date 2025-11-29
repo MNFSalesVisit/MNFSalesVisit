@@ -187,6 +187,32 @@ const SalesApp = () => {
         }
       }
 
+      // Aggressive best-guess: try the most likely deviceId quickly (last for rear, first for front)
+      try {
+        const devicesQuick = await navigator.mediaDevices.enumerateDevices();
+        const camsQuick = devicesQuick.filter(d => d.kind === 'videoinput');
+        if (camsQuick && camsQuick.length > 0) {
+          const guess = desiredFacing === 'environment' ? camsQuick[camsQuick.length - 1] : camsQuick[0];
+          if (guess && guess.deviceId) {
+            try {
+              console.log('Trying heuristic deviceId for quick open:', guess.deviceId);
+              const guessStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: guess.deviceId }, aspectRatio: 9/16, width: { ideal: 720 }, height: { ideal: 1280 } } });
+              if (videoRef.current) videoRef.current.srcObject = guessStream;
+              // cache and return
+              const updated = { ...cameraDeviceIds, [desiredFacing]: guess.deviceId };
+              setCameraDeviceIds(updated);
+              try { localStorage.setItem('mnf_camera_deviceIds', JSON.stringify(updated)); } catch (e) { /* ignore */ }
+              setCameraFacing(desiredFacing);
+              return;
+            } catch (gErr) {
+              console.warn('Heuristic deviceId open failed, continuing to ideal facingMode:', gErr);
+            }
+          }
+        }
+      } catch (enumErr) {
+        console.warn('Heuristic enumerateDevices failed:', enumErr);
+      }
+
       // Use ideal constraint (more compatible than exact) to prefer a camera
       const constraints = {
         video: desiredFacing === "environment"
