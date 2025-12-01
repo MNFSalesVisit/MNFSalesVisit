@@ -5,6 +5,61 @@ const USERS_SHEET = "Users";
 const UPLIFT_SHEET = "Uplift";
 const TARGETS_SHEET = "Targets";
 
+// Folder name in Drive to store uploaded receipts
+const RECEIPT_FOLDER_NAME = 'SprintApp_Uplift_Receipts';
+
+/**
+ * Save a data URL image to Drive and return a shareable URL.
+ * Returns null on failure.
+ */
+function saveDataUrlToDrive(dataUrl, nationalID) {
+  try {
+    if (!dataUrl || typeof dataUrl !== 'string') return null;
+    var matches = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+    if (!matches) return null;
+    var contentType = matches[1];
+    var base64Data = matches[2];
+
+    var bytes = Utilities.base64Decode(base64Data);
+    var extension = 'jpg';
+    if (contentType.indexOf('/') > -1) {
+      extension = contentType.split('/')[1];
+      extension = extension.replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
+    }
+
+    var filename = 'receipt_' + (nationalID || 'unknown') + '_' + new Date().getTime() + '.' + extension;
+    var blob = Utilities.newBlob(bytes, contentType, filename);
+
+    // Ensure folder exists
+    var folders = DriveApp.getFoldersByName(RECEIPT_FOLDER_NAME);
+    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(RECEIPT_FOLDER_NAME);
+
+    var file = folder.createFile(blob);
+    // Make it viewable with link
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (e) {
+      // If setting sharing fails (insufficient permissions), ignore and continue — return URL which may require auth
+      Logger.log('setSharing failed: ' + e.message);
+    }
+
+    var url = (typeof file.getUrl === 'function') ? file.getUrl() : null;
+    // If getUrl() isn't available or returned null, construct a usable viewer URL using the file ID
+    if ((!url || url === '') && file.getId) {
+      try {
+        url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+      } catch (e) {
+        url = null;
+      }
+    }
+
+    return url || (file.getId ? ('https://drive.google.com/uc?export=view&id=' + file.getId()) : null);
+  } catch (err) {
+    Logger.log('saveDataUrlToDrive error: ' + err.message);
+    return null;
+  }
+}
+
 // ========= HELPER: GET MONTH SHEET NAME =========
 function getMonthSheetName(date) {
   // Returns format like "Nov-2025", "Dec-2025"
@@ -227,6 +282,18 @@ function ensureUpliftSheet() {
   return upliftSheet;
 }
 
+// ========= AUTO-CREATE UPLIFT LOGS SHEET =========
+function ensureUpliftLogsSheet() {
+  const ss = SpreadsheetApp.getActive();
+  const name = 'UpliftLogs';
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.appendRow(['Timestamp', 'NationalID', 'photosCount', 'firstIsDataUrl', 'firstLength', 'savedUrl_or_receiptField_trunc', 'error']);
+  }
+  return sh;
+}
+
 // ========= AUTO-CREATE TARGETS SHEET =========
 function ensureTargetsSheet() {
   const ss = SpreadsheetApp.getActive();
@@ -346,52 +413,114 @@ function saveVisit(record) {
   const sh = ensureMonthlyVisitSheet(now);
 
   // Format SKU structure into readable text
-  let skuFormatted = "";
-  let totalCartons = 0;
+  var receiptField = "";
+  var savedUrls = [];
+  var receiptError = '';
+  var photos = [];
+  try {
+    if (record.receiptPhoto) {
+      if (Object.prototype.toString.call(record.receiptPhoto) === '[object Array]') {
+        photos = record.receiptPhoto;
+      } else if (typeof record.receiptPhoto === 'string') {
+        try {
+          var parsed = JSON.parse(record.receiptPhoto);
+          if (Object.prototype.toString.call(parsed) === '[object Array]') {
+            photos = parsed;
+          } else {
+            photos = [record.receiptPhoto];
+          }
+        } catch (e) {
+          photos = [record.receiptPhoto];
+        }
+      }
+    }
 
-  if (record.skus && record.skus.length > 0) {
-    skuFormatted = record.skus
-      .map(s => `${s.name}:${s.qty}`)
+    for (var p = 0; p < photos.length; p++) {
+      var img = photos[p];
+      if (typeof img === 'string' && img.indexOf('data:') === 0) {
+        var url = saveDataUrlToDrive(img, record.nationalID);
+        if (url) savedUrls.push(url);
+      } else if (typeof img === 'string' && img.indexOf('http') === 0) {
+        savedUrls.push(img);
+      }
+      if (savedUrls.length >= 1) break;
+    }
+
+    if (savedUrls.length === 1) {
+      receiptField = savedUrls[0];
+    } else if (savedUrls.length > 1) {
+      receiptField = JSON.stringify(savedUrls);
+    } else {
+      receiptField = (typeof record.receiptPhoto === 'string') ? record.receiptPhoto : '';
+    }
+  } catch (ex) {
+    Logger.log('Receipt processing error: ' + ex.message);
+    receiptError = ex.message || String(ex);
+    receiptField = (typeof record.receiptPhoto === 'string') ? record.receiptPhoto : '';
+  }
+
+  // Append a small debug entry to UpliftLogs so we can inspect why receipts are blank
+  try {
+    var logSh = ensureUpliftLogsSheet();
+    var photosCount = Array.isArray(photos) ? photos.length : (photos ? 1 : 0);
+    var firstIsDataUrl = (photosCount > 0 && typeof photos[0] === 'string' && photos[0].indexOf('data:') === 0) ? 'yes' : 'no';
+    var firstLength = (photosCount > 0 && typeof photos[0] === 'string') ? String(photos[0].length) : '';
+    var truncated = receiptField ? (String(receiptField).slice(0, 500)) : '';
+    logSh.appendRow([new Date(), record.nationalID || '', photosCount, firstIsDataUrl, firstLength, truncated, receiptError]);
+  } catch (logErr) {
+    Logger.log('Failed to write UpliftLogs entry: ' + (logErr && logErr.message ? logErr.message : String(logErr)));
+  }
       .join(" | ");
 
     totalCartons = record.skus.reduce((sum, s) => sum + Number(s.qty), 0);
   }
+  // Process receipt photo(s): if the frontend sent data-URLs, save to Drive and store link(s)
+  var receiptField = "";
+  try {
+    var photos = [];
+    if (record.receiptPhoto) {
+      if (Object.prototype.toString.call(record.receiptPhoto) === '[object Array]') {
+        photos = record.receiptPhoto;
+      } else if (typeof record.receiptPhoto === 'string') {
+        // Could be a single dataURL or a JSON array encoded as string
+        try {
+          var parsed = JSON.parse(record.receiptPhoto);
+          if (Object.prototype.toString.call(parsed) === '[object Array]') {
+            photos = parsed;
+          } else {
+            photos = [record.receiptPhoto];
+          }
+        } catch (e) {
+          photos = [record.receiptPhoto];
+        }
+      }
+    }
 
-  const row = [
-    new Date(),             // 1 Timestamp
-    record.nationalID,      // 2
-    record.name,            // 3
-    record.region,          // 4
-    record.shopName,        // 5
-    record.sold,            // 6
-    skuFormatted,           // 7 SKUs
-    totalCartons,           // 8 TOTAL CARTONS
-    record.reason,          // 9 Reason
-    record.longitude,       //10
-    record.latitude,        //11
-    record.selfie           //12
-  ];
+    var savedUrls = [];
+    for (var p = 0; p < photos.length; p++) {
+      var img = photos[p];
+      if (typeof img === 'string' && img.indexOf('data:') === 0) {
+        var url = saveDataUrlToDrive(img, record.nationalID);
+        if (url) savedUrls.push(url);
+      } else if (typeof img === 'string' && img.indexOf('http') === 0) {
+        // Already a URL
+        savedUrls.push(img);
+      }
+      // Only keep first image for now (frontend expects single file)
+      if (savedUrls.length >= 1) break;
+    }
 
-  sh.appendRow(row);
-
-  return { success: true };
-}
-
-// ========= SAVE UPLIFT VISIT =========
-function saveUpliftVisit(record) {
-  // Ensure the Uplift sheet exists
-  const sh = ensureUpliftSheet();
-
-  // Format SKU structure into readable text
-  let skuFormatted = "";
-  let totalCartons = 0;
-
-  if (record.skus && record.skus.length > 0) {
-    skuFormatted = record.skus
-      .map(s => `${s.name}:${s.qty}`)
-      .join(" | ");
-
-    totalCartons = record.skus.reduce((sum, s) => sum + Number(s.qty), 0);
+    if (savedUrls.length === 1) {
+      receiptField = savedUrls[0];
+    } else if (savedUrls.length > 1) {
+      receiptField = JSON.stringify(savedUrls);
+    } else {
+      // Fallback to storing raw value (may be empty or non-data URL)
+      receiptField = (typeof record.receiptPhoto === 'string') ? record.receiptPhoto : '';
+    }
+  } catch (ex) {
+    Logger.log('Receipt processing error: ' + ex.message);
+    receiptField = (typeof record.receiptPhoto === 'string') ? record.receiptPhoto : '';
   }
 
   const row = [
@@ -402,7 +531,7 @@ function saveUpliftVisit(record) {
     record.shopName,        // 5
     skuFormatted,           // 6 SKUs
     totalCartons,           // 7 TOTAL CARTONS
-    record.receiptPhoto,    // 8 Receipt Photo (rear camera)
+    receiptField,           // 8 Receipt Photo (link or raw)
     record.longitude,       // 9
     record.latitude,        //10
     "Pending",              //11 Status
@@ -1038,4 +1167,43 @@ function doPost(e) {
     default:
       return ContentService.createTextOutput(JSON.stringify({ error: "Unknown action" }));
   }
+}
+
+/**
+ * Migrate existing data-URL images stored in the Uplift sheet into Drive links.
+ * Run this once (manually) if you have old rows where the Receipt Photo column contains a data URL.
+ */
+function migrateExistingReceipts() {
+  var sh = ensureUpliftSheet();
+  var dataRange = sh.getDataRange();
+  var data = dataRange.getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    var cellVal = data[i][7]; // Receipt Photo column (index 7, zero-based)
+    if (!cellVal || typeof cellVal !== 'string') continue;
+
+    try {
+      if (cellVal.indexOf('data:') === 0) {
+        // Old data-URL image — save to Drive
+        var url = saveDataUrlToDrive(cellVal, data[i][1]);
+        if (url) {
+          sh.getRange(i + 1, 8).setValue(url);
+        }
+      } else if (cellVal.indexOf('http') === 0) {
+        // Already a URL — nothing to do
+        continue;
+      } else {
+        // Possibly a raw Drive file ID (saved earlier). Convert to a usable viewer URL if it looks like an ID
+        var trimmed = cellVal.trim();
+        if (/^[A-Za-z0-9_-]{10,100}$/.test(trimmed)) {
+          var constructed = 'https://drive.google.com/uc?export=view&id=' + trimmed;
+          sh.getRange(i + 1, 8).setValue(constructed);
+        }
+      }
+    } catch (e) {
+      Logger.log('migrateExistingReceipts error on row ' + (i+1) + ': ' + e.message);
+    }
+  }
+
+  return { success: true };
 }

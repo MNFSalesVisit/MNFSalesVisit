@@ -496,8 +496,14 @@ const SalesApp = () => {
       });
 
       try {
-        await apiService.saveUpliftVisit(record);
-        
+        const result = await apiService.saveUpliftVisit(record);
+        console.log('saveUpliftVisit result:', result);
+
+        // If backend didn't return a stored receiptField, warn user (Drive save likely failed)
+        if (!result || !result.receiptField) {
+          alert('Receipt upload did not complete on the server. The receipt column may be blank. Please ask the admin to redeploy the Apps Script and grant Drive permissions, then try again.');
+        }
+
         // Show success overlay
         setSubmittedVisitType("Uplift");
         setShowSuccess(true);
