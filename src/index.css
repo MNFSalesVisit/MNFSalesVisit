@@ -31,8 +31,6 @@ body{
   justify-content:space-between;
   align-items:center;
   margin:10px 0 16px 0;
-  position:relative;
-  z-index:1;
 }
 
 #centerTitle {
@@ -204,92 +202,4 @@ label{
     height:calc(45vw * 16 / 9);
   }
   #topHeading .dateText { font-size:13px; }
-}
-
-/* App logo used above login and visit form */
-.app-logo{
-  display:block;
-  margin:0 auto;
-  width:96px;
-  height:auto;
-}
-
-@media(max-width:480px){
-  .app-logo{ width:64px; }
-}
-
-/* Small logo shown above the top red bar */
-.topbar-logo{
-  display:block;
-  margin:0 auto;
-  width:72px;
-  height:auto;
-  margin-bottom:-12px; /* overlap the red bar slightly */
-  position:relative;
-  z-index:2;
-}
-
-@media(max-width:480px){
-  .topbar-logo{ width:72px; margin-bottom:-12px; }
-}
-
-/* Sticky wrapper for logo + top bar to keep them fixed while scrolling */
-.sticky-topbar{
-  position: -webkit-sticky;
-  position: sticky;
-  top: 0;
-  z-index: 10000;
-  display: block;
-  background: transparent;
-  padding-top: 6px;
-  transition: box-shadow 180ms ease, background-color 180ms ease;
-}
-
-.sticky-topbar #topHeading{
-  /* ensure topHeading remains visually on top of other content when sticky */
-  position: relative;
-  z-index: 10001;
-}
-
-/* Add subtle shadow only when the topbar is stuck to separate content */
-.sticky-topbar.is-stuck{
-  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-  background: var(--bg);
-  z-index: 10002;
-}
-
-/* When stuck, keep logo inside the header and prevent content from peeking */
-.sticky-topbar.is-stuck{
-  overflow: hidden;
-}
-
-.sticky-topbar.is-stuck .topbar-logo{
-  margin-bottom: 6px; /* remove overlap so logo sits inside opaque header */
-}
-
-/* Visit form back-to-top button */
-.visit-form-card{ position: relative; }
-.back-to-top{
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 14px rgba(0,0,0,0.18);
-  cursor: pointer;
-  z-index: 30;
-}
-.back-to-top svg{ filter: none; }
-.back-to-top:hover{ transform: translateY(-2px); }
-.back-to-top:active{ transform: translateY(0); }
-
-@media(max-width:480px){
-  .back-to-top{ right:10px; bottom:10px; width:40px; height:40px; }
 }
