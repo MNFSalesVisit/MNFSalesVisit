@@ -262,7 +262,7 @@ function ensureUpliftSheet() {
       "Receipt Photo",
       "Longitude",
       "Latitude",
-      "Status",
+        return { success: true, receiptField: receiptField };
       "Rejection Reason",
       "Approved By",
       "Approved Date"
@@ -541,8 +541,12 @@ function saveVisit(record) {
   ];
 
   sh.appendRow(row);
+  // Log the stored receipt value for troubleshooting in executions logs
+  try {
+    Logger.log('saveUpliftVisit - stored receiptField: ' + (receiptField || '(empty)'));
+  } catch (e) {}
 
-  return { success: true };
+  return { success: true, receiptField: receiptField };
 }
 
 // ========= DASHBOARD (MTD) + STOCK BALANCE =========

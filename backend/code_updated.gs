@@ -439,8 +439,7 @@ function saveVisit(record) {
   ];
 
   sh.appendRow(row);
-
-  return { success: true, receiptField: receiptField };
+  return { success: true };
 }
 
 // ========= SAVE UPLIFT VISIT =========
@@ -538,7 +537,12 @@ function saveUpliftVisit(record) {
 
   sh.appendRow(row);
 
-  return { success: true };
+  // Log the stored receipt value for troubleshooting in executions logs
+  try {
+    Logger.log('saveUpliftVisit - stored receiptField: ' + (receiptField || '(empty)'));
+  } catch (e) {}
+
+  return { success: true, receiptField: receiptField };
 }
 
 // ========= DASHBOARD (MTD) + STOCK BALANCE =========
