@@ -6,6 +6,9 @@ const SalesApp = () => {
   const navigate = useNavigate();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const stickySentinelRef = useRef(null);
+  const stickyRef = useRef(null);
+  const [isTopbarStuck, setIsTopbarStuck] = useState(false);
   
   // State management
   const [currentUser, setCurrentUser] = useState(null);
@@ -13,7 +16,9 @@ const SalesApp = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedVisitType, setSubmittedVisitType] = useState("");
   const [isDark, setIsDark] = useState(false);
-  const [selfieData, setSelfieData] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [selfieData, setSelfieData] = useState([]);
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
   const [cameraFacing, setCameraFacing] = useState("user");
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
@@ -35,7 +40,7 @@ const SalesApp = () => {
   });
   
   // SKU state
-  const availableSKUs = ["Chicken", "Beef", "Supa Mojo"];
+  const availableSKUs = ["Chicken", "Beef", "Supa Mojo", "SupaMi"];
   const [skuQuantities, setSkuQuantities] = useState(
     availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {})
   );
@@ -78,18 +83,38 @@ const SalesApp = () => {
     }
   }, [isDark]);
 
+  // Observe a sentinel to determine when the topbar becomes stuck
+  useEffect(() => {
+    if (!stickySentinelRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          // When sentinel is not intersecting, the topbar has stuck to the top
+          setIsTopbarStuck(!entry.isIntersecting);
+        });
+      },
+      { root: null, threshold: 0 }
+    );
+
+    observer.observe(stickySentinelRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   // Login function
   const handleLogin = async () => {
     const { nationalID, password } = loginForm;
-    
+
+    if (loginLoading) return; // prevent duplicate
+
     if (!nationalID || !password) {
       alert("Enter National ID & Password");
       return;
     }
 
+    setLoginLoading(true);
     try {
       const data = await apiService.login(nationalID, password);
-      
+
       if (!data.success) {
         alert("Invalid credentials");
         return;
@@ -110,6 +135,8 @@ const SalesApp = () => {
     } catch (error) {
       alert("Login failed. Please try again.");
       console.error(error);
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -210,7 +237,7 @@ const SalesApp = () => {
     );
     
     const dataURL = canvas.toDataURL("image/jpeg", 0.95);
-    setSelfieData(dataURL);
+    setSelfieData([dataURL]);
   };
 
   // Flip camera between front and rear
@@ -243,6 +270,77 @@ const SalesApp = () => {
     } finally {
       setIsSwitchingCamera(false);
     }
+  };
+
+  // Stop any running camera
+  const stopCamera = () => {
+    try {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach(track => {
+          try { track.stop(); } catch (e) { /* ignore */ }
+          track.enabled = false;
+        });
+        videoRef.current.srcObject = null;
+      }
+    } catch (err) {
+      console.warn('stopCamera error', err);
+    }
+  };
+
+  // Handle receipt upload (for Uplift) - accept single file, crop/resize to 720x1280 and set selfieData
+  const handleReceiptUpload = (e) => {
+    const file = e?.target?.files && e.target.files[0];
+    if (!file) return;
+
+    const processFile = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = 720;
+            tmpCanvas.height = 1280;
+            const ctx = tmpCanvas.getContext('2d');
+
+            const imgW = img.width;
+            const imgH = img.height;
+            const imgAspect = imgW / imgH;
+            const canvasAspect = 720 / 1280;
+
+            let sx = 0, sy = 0, sWidth = imgW, sHeight = imgH;
+            if (imgAspect > canvasAspect) {
+              sWidth = imgH * canvasAspect;
+              sx = (imgW - sWidth) / 2;
+            } else {
+              sHeight = imgW / canvasAspect;
+              sy = (imgH - sHeight) / 2;
+            }
+
+            ctx.clearRect(0, 0, 720, 1280);
+            ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, 720, 1280);
+            try {
+              const dataURL = tmpCanvas.toDataURL('image/jpeg', 0.95);
+              resolve(dataURL);
+            } catch (err) {
+              reject(err);
+            }
+          };
+          img.onerror = (err) => reject(err);
+          img.src = reader.result;
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+    };
+
+    processFile(file)
+      .then(result => setSelfieData([result]))
+      .catch(err => {
+        console.error('Error processing uploaded image', err);
+        alert('Failed to process uploaded image. Please try a smaller image.');
+      });
   };
 
   // Handle SKU quantity changes
@@ -345,7 +443,10 @@ const SalesApp = () => {
     const { visitType } = visitForm;
     const photoLabel = visitType === "Uplift" ? "receipt" : "selfie";
     
-    if (!selfieData) {
+    // Validate photo(s): require at least one image in the selfieData array
+    const hasPhoto = Array.isArray(selfieData) ? selfieData.length > 0 : !!selfieData;
+
+    if (!hasPhoto) {
       alert(`Capture ${photoLabel}`);
       return;
     }
@@ -411,7 +512,7 @@ const SalesApp = () => {
           reason: "",
           otherReason: ""
         });
-        setSelfieData("");
+        setSelfieData([]);
         setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
         
         // Reload dashboard
@@ -480,7 +581,7 @@ const SalesApp = () => {
       reason: reasonVal,
       longitude: capturedCoords.longitude,
       latitude: capturedCoords.latitude,
-      selfie: selfieData
+      selfie: Array.isArray(selfieData) ? selfieData[0] : selfieData
     };
 
     console.log("Submitting record with coordinates:", {
@@ -527,7 +628,7 @@ const SalesApp = () => {
         reason: "",
         otherReason: ""
       });
-      setSelfieData("");
+      setSelfieData([]);
       setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
       
       // Reload dashboard
@@ -550,6 +651,9 @@ const SalesApp = () => {
     return (
       <div className="container-root">
         <div className="card-custom">
+          <div style={{ textAlign: 'center', marginBottom: 12 }}>
+            <img src="/icon-192.png" alt="Indomie logo" className="app-logo" />
+          </div>
           <h4 style={{ textAlign: "center" }}>Sales Visit App</h4>
           <p className="small-muted text-center">Enter your National ID and password.</p>
 
@@ -559,22 +663,62 @@ const SalesApp = () => {
             type="text"
             value={loginForm.nationalID}
             onChange={(e) => setLoginForm(prev => ({ ...prev, nationalID: e.target.value }))}
+            disabled={loginLoading}
           />
 
           <label className="mt-3">Password</label>
-          <input
-            className="form-control"
-            type="password"
-            value={loginForm.password}
-            onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
-            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              className="form-control"
+              type={showPassword ? 'text' : 'password'}
+              value={loginForm.password}
+              onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
+              onKeyPress={(e) => e.key === 'Enter' && !loginLoading && handleLogin()}
+              disabled={loginLoading}
+              style={{ paddingRight: '44px' }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(s => !s)}
+              disabled={loginLoading}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              title={showPassword ? 'Hide password' : 'Show password'}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                border: 'none',
+                background: 'transparent',
+                padding: '6px',
+                cursor: loginLoading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              <i className={`bi bi-${showPassword ? 'eye-slash' : 'eye'}`} style={{ fontSize: '1.0rem', color: '#495057' }}></i>
+            </button>
+          </div>
 
-          <button className="btn btn-danger w-100 mt-3" onClick={handleLogin}>
-            Login
+          <button className="btn btn-danger w-100 mt-3" onClick={handleLogin} disabled={loginLoading}>
+            {loginLoading ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                Logging in...
+              </>
+            ) : (
+              'Login'
+            )}
           </button>
+          </div>
+          <div className="mt-3 text-center small text-muted">
+            <div className="mb-1">
+              <a href="#" className="text-decoration-none text-muted">Terms & Conditions</a> | 
+              <a href="#" className="text-decoration-none text-muted ms-1">Privacy Policy</a>
+            </div>
+            <div style={{ fontSize: '11px' }}>
+              © 2025 Sprint App. All rights reserved.
+            </div>
+          </div>
         </div>
-      </div>
     );
   }
 
@@ -595,8 +739,13 @@ const SalesApp = () => {
       </div>
 
       <div className="container-root">
-        {/* Top Bar */}
-        <div id="topHeading">
+        <div ref={stickySentinelRef} style={{ position: 'relative', height: 1 }} aria-hidden="true" />
+        <div ref={stickyRef} className={`sticky-topbar ${isTopbarStuck ? 'is-stuck' : ''}`}>
+          <div style={{ textAlign: 'center', marginBottom: 6 }}>
+            <img src="/icon-192.png" alt="Indomie logo" className="topbar-logo" />
+          </div>
+          {/* Top Bar */}
+          <div id="topHeading">
           <div className="dateText">{formatHeadingDate()}</div>
           <div id="centerTitle">Sales Visit App</div>
           <div className="rightControls">
@@ -610,6 +759,7 @@ const SalesApp = () => {
               <i className="bi bi-box-arrow-right"></i>
             </button>
           </div>
+        </div>
         </div>
 
         {/* Dashboard Card */}
@@ -838,7 +988,7 @@ const SalesApp = () => {
         )}
 
         {/* Form Card */}
-        <div className="card-custom">
+        <div className="card-custom visit-form-card">
           <form onSubmit={handleSubmit}>
             <label>Visit Type</label>
             <select 
@@ -847,14 +997,15 @@ const SalesApp = () => {
               onChange={(e) => {
                 const newType = e.target.value;
                 setVisitForm(prev => ({ ...prev, visitType: newType }));
-                // Switch camera based on visit type
+                // For Uplift we use an upload flow, so stop any running camera.
                 if (newType === "Uplift") {
-                  startCamera("environment"); // Rear camera
+                  stopCamera();
                 } else if (newType === "Shop Visit") {
-                  startCamera("user"); // Front camera
+                  // For Shop Visit, use front camera
+                  startCamera("user");
                 }
                 // Reset photo when changing visit type
-                setSelfieData("");
+                setSelfieData([]);
               }}
               required
             >
@@ -960,60 +1111,71 @@ const SalesApp = () => {
                   </div>
                 )}
 
-                {/* Photo Capture */}
+                {/* Photo Capture / Upload */}
                 <label className="mt-3">
                   {visitForm.visitType === "Uplift" ? "Receipt Photo" : "Selfie"}
                 </label>
-                <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-                  <video 
-                    ref={videoRef}
-                    id="camera" 
-                    autoPlay 
-                    muted 
-                    playsInline
-                  />
-                  <button
-                    type="button"
-                    onClick={flipCamera}
-                    disabled={isSwitchingCamera}
-                    style={{
-                      position: 'absolute',
-                      top: '10px',
-                      right: '10px',
-                      background: isSwitchingCamera ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.5)',
-                      border: 'none',
-                      borderRadius: '50%',
-                      width: '40px',
-                      height: '40px',
-                      color: 'white',
-                      fontSize: '20px',
-                      cursor: isSwitchingCamera ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      zIndex: 10,
-                      opacity: isSwitchingCamera ? 0.6 : 1
-                    }}
-                    title="Switch Camera"
-                  >
-                    {isSwitchingCamera ? '⏳' : '🔄'}
-                  </button>
-                </div>
 
-                <div className="text-center mt-3">
-                  <button type="button" className="btn btn-secondary px-5" onClick={capturePhoto}>
-                    Capture
-                  </button>
-                  {selfieData && (
-                    <div className="mt-3">
-                      <img 
-                        id="preview" 
-                        src={selfieData} 
-                        alt="Preview" 
-                      />
+                {visitForm.visitType === "Uplift" ? (
+                  <div>
+                      <div style={{ marginTop: '8px' }}>
+                        <input type="file" accept="image/*" onChange={handleReceiptUpload} />
+                        <div style={{ fontSize: '0.8rem', color: '#6c757d', marginTop: '6px' }}>Upload one image (receipt).</div>
+                      </div>
+                      {selfieData && (
+                        <div className="mt-3">
+                          <img id="preview" src={Array.isArray(selfieData) ? selfieData[0] : selfieData} alt="Preview" />
+                        </div>
+                      )}
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                    <video 
+                      ref={videoRef}
+                      id="camera" 
+                      autoPlay 
+                      muted 
+                      playsInline
+                    />
+                    <button
+                      type="button"
+                      onClick={flipCamera}
+                      disabled={isSwitchingCamera}
+                      style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        background: isSwitchingCamera ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.5)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '40px',
+                        height: '40px',
+                        color: 'white',
+                        fontSize: '20px',
+                        cursor: isSwitchingCamera ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10,
+                        opacity: isSwitchingCamera ? 0.6 : 1
+                      }}
+                      title="Switch Camera"
+                    >
+                      {isSwitchingCamera ? '⏳' : '🔄'}
+                    </button>
+
+                    <div className="text-center mt-3">
+                      <button type="button" className="btn btn-secondary px-5" onClick={capturePhoto}>
+                        Capture
+                      </button>
+                      {selfieData && (
+                        <div className="mt-3">
+                          <img id="preview" src={Array.isArray(selfieData) ? selfieData[0] : selfieData} alt="Preview" />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <button 
                   type="submit" 
@@ -1032,7 +1194,19 @@ const SalesApp = () => {
               </>
             )}
           </form>
-          
+          {/* Back-to-top badge (bottom-right of form) */}
+          <button
+            type="button"
+            className="back-to-top"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            aria-label="Back to top"
+            title="Back to top"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+              <path d="M12 5l-7 7h4v7h6v-7h4l-7-7z" fill="currentColor" />
+            </svg>
+          </button>
+
           {/* Footer */}
           <div className="mt-4 text-center small text-muted">
             <div className="mb-1">
@@ -1040,7 +1214,7 @@ const SalesApp = () => {
               <a href="#" className="text-decoration-none text-muted ms-1">Privacy Policy</a>
             </div>
             <div style={{ fontSize: '11px' }}>
-              © 2025 MNF Sales. All rights reserved.
+              © 2025 Sprint App. All rights reserved.
             </div>
           </div>
         </div>
