@@ -227,6 +227,60 @@ function ensureUpliftSheet() {
   return upliftSheet;
 }
 
+// ========= AUTO-CREATE UPLIFT LOGS SHEET =========
+function ensureUpliftLogsSheet() {
+  const ss = SpreadsheetApp.getActive();
+  const name = 'UpliftLogs';
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    const headers = [
+      'Timestamp',
+      'NationalID',
+      'PhotosCount',
+      'FirstIsDataUrl',
+      'FirstLength',
+      'ReceiptPreview',
+      'SaveError'
+    ];
+    sh.appendRow(headers);
+    const hr = sh.getRange(1,1,1,headers.length);
+    hr.setFontWeight('bold');
+    hr.setBackground('#f4b084');
+  }
+  return sh;
+}
+
+// ========= ENSURE RECEIPT FOLDER ON DRIVE =========
+function ensureReceiptFolder() {
+  const FOLDER_NAME = 'SprintApp_Uplift_Receipts';
+  const it = DriveApp.getFoldersByName(FOLDER_NAME);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(FOLDER_NAME);
+}
+
+// ========= SAVE DATA-URL TO DRIVE =========
+function saveDataUrlToDrive(dataUrl, nationalID) {
+  if (!dataUrl || typeof dataUrl !== 'string') throw new Error('No dataUrl');
+  const m = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+  if (!m) throw new Error('Invalid data URL');
+  const mime = m[1];
+  const b64 = m[2];
+  const bytes = Utilities.base64Decode(b64);
+  const ext = mime.split('/')[1].split('+')[0] || 'jpg';
+  const name = `${nationalID || 'anon'}_${new Date().getTime()}.${ext}`;
+  const blob = Utilities.newBlob(bytes, mime, name);
+  const folder = ensureReceiptFolder();
+  const file = folder.createFile(blob);
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    // continue even if sharing fails due to permissions
+    Logger.log('setSharing failed: ' + e.message);
+  }
+  return file.getUrl();
+}
+
 // ========= AUTO-CREATE TARGETS SHEET =========
 function ensureTargetsSheet() {
   const ss = SpreadsheetApp.getActive();
@@ -381,6 +435,7 @@ function saveVisit(record) {
 function saveUpliftVisit(record) {
   // Ensure the Uplift sheet exists
   const sh = ensureUpliftSheet();
+  const logs = ensureUpliftLogsSheet();
 
   // Format SKU structure into readable text
   let skuFormatted = "";
@@ -394,6 +449,48 @@ function saveUpliftVisit(record) {
     totalCartons = record.skus.reduce((sum, s) => sum + Number(s.qty), 0);
   }
 
+  // Normalize receiptPhoto: can be string (dataURL or JSON array) or array
+  let photos = [];
+  try {
+    if (!record.receiptPhoto) {
+      photos = [];
+    } else if (Array.isArray(record.receiptPhoto)) {
+      photos = record.receiptPhoto;
+    } else if (typeof record.receiptPhoto === 'string') {
+      // Try parse JSON array
+      try {
+        const parsed = JSON.parse(record.receiptPhoto);
+        if (Array.isArray(parsed)) photos = parsed; else photos = [record.receiptPhoto];
+      } catch (e) {
+        photos = [record.receiptPhoto];
+      }
+    } else {
+      photos = [String(record.receiptPhoto)];
+    }
+  } catch (e) {
+    photos = [String(record.receiptPhoto || '')];
+  }
+
+  const photosCount = photos.length;
+  const first = photosCount > 0 ? String(photos[0] || '') : '';
+  const firstIsDataUrl = /^data:/.test(first);
+  const firstLength = first.length || 0;
+  const preview = first.substring(0, 200);
+
+  // Attempt to persist first data-url to Drive and get a viewable link
+  let storedReceipt = first;
+  let saveError = '';
+  if (firstIsDataUrl) {
+    try {
+      storedReceipt = saveDataUrlToDrive(first, record.nationalID);
+    } catch (e) {
+      Logger.log('saveDataUrlToDrive failed: ' + e.message);
+      saveError = e.message;
+      // fallback: keep original data URL so admin can inspect raw value
+      storedReceipt = first;
+    }
+  }
+
   const row = [
     new Date(),             // 1 Timestamp
     record.nationalID,      // 2
@@ -402,18 +499,25 @@ function saveUpliftVisit(record) {
     record.shopName,        // 5
     skuFormatted,           // 6 SKUs
     totalCartons,           // 7 TOTAL CARTONS
-    record.receiptPhoto,    // 8 Receipt Photo (rear camera)
+    storedReceipt,          // 8 Receipt Photo (Drive URL or original)
     record.longitude,       // 9
     record.latitude,        //10
-    "Pending",              //11 Status
-    "",                     //12 Rejection Reason
-    "",                     //13 Approved By
-    ""                      //14 Approved Date
+    "Pending",            //11 Status
+    "",                   //12 Rejection Reason
+    "",                   //13 Approved By
+    ""                    //14 Approved Date
   ];
 
   sh.appendRow(row);
 
-  return { success: true };
+  // Append diagnostics to UpliftLogs
+  try {
+    logs.appendRow([new Date(), String(record.nationalID || ''), photosCount, String(firstIsDataUrl), firstLength, preview, saveError]);
+  } catch (e) {
+    Logger.log('Append to UpliftLogs failed: ' + e.message);
+  }
+
+  return { success: true, savedReceipt: storedReceipt, saveError: saveError };
 }
 
 // ========= DASHBOARD (MTD) + STOCK BALANCE =========
@@ -799,47 +903,69 @@ function getSKUAnalysis(params) {
     return (d.getMonth() + 1) === month && d.getFullYear() === year;
   });
 
-  // Parse SKUs and aggregate
+  // Parse SKUs and aggregate with per-salesperson breakdown
   const skuStats = {};
-  
+
   filtered.forEach(v => {
     if (String(v.sold) !== "Yes") return; // Only count actual sales
-    
+
     const skuString = String(v.skus || "");
     if (!skuString) return;
-    
+
     // Parse "SKU1:5 | SKU2:10 | SKU3:3" format
     const skuPairs = skuString.split("|").map(s => s.trim());
-    
+
     skuPairs.forEach(pair => {
       const parts = pair.split(":");
       if (parts.length !== 2) return;
-      
+
       const skuName = parts[0].trim();
       const qty = Number(parts[1].trim()) || 0;
-      
+      const person = String(v.name || v.nationalID || 'unknown');
+
       if (!skuStats[skuName]) {
         skuStats[skuName] = {
           sku: skuName,
           totalCartons: 0,
           totalVisits: 0,
-          salespeople: new Set()
+          salesByPerson: {} // name -> { totalCartons, totalVisits }
         };
       }
-      
+
+      // Update totals
       skuStats[skuName].totalCartons += qty;
       skuStats[skuName].totalVisits += 1;
-      skuStats[skuName].salespeople.add(v.name || v.nationalID);
+
+      // Update per-person
+      if (!skuStats[skuName].salesByPerson[person]) {
+        skuStats[skuName].salesByPerson[person] = { totalCartons: 0, totalVisits: 0 };
+      }
+      skuStats[skuName].salesByPerson[person].totalCartons += qty;
+      skuStats[skuName].salesByPerson[person].totalVisits += 1;
     });
   });
 
-  // Convert to array and add salesperson count
-  const skuArray = Object.values(skuStats).map(s => ({
-    sku: s.sku,
-    totalCartons: s.totalCartons,
-    totalVisits: s.totalVisits,
-    salespeopleCount: s.salespeople.size
-  })).sort((a, b) => b.totalCartons - a.totalCartons);
+  // Convert to array and add salesperson arrays
+  const skuArray = Object.values(skuStats).map(s => {
+    const salesByPersonArr = Object.keys(s.salesByPerson).map(name => {
+      const rec = s.salesByPerson[name];
+      const share = s.totalCartons ? Math.round((rec.totalCartons / s.totalCartons) * 1000) / 10 : 0;
+      return {
+        name: name,
+        totalCartons: rec.totalCartons,
+        totalVisits: rec.totalVisits,
+        sharePercent: share
+      };
+    }).sort((a, b) => b.totalCartons - a.totalCartons);
+
+    return {
+      sku: s.sku,
+      totalCartons: s.totalCartons,
+      totalVisits: s.totalVisits,
+      salespeopleCount: salesByPersonArr.length,
+      salesByPerson: salesByPersonArr
+    };
+  }).sort((a, b) => b.totalCartons - a.totalCartons);
 
   return skuArray;
 }

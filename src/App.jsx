@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import SalesApp from './components/SalesApp';
 import AdminDashboard from './components/AdminDashboard';
+import UpliftPage from './components/UpliftPage';
 
 function App() {
   return (
@@ -9,6 +10,7 @@ function App() {
       <Routes>
         <Route path="/" element={<SalesApp />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/uplift" element={<UpliftPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

@@ -343,7 +343,7 @@ const SalesApp = () => {
     }
     
     const { visitType } = visitForm;
-    const photoLabel = visitType === "Uplift" ? "receipt" : "selfie";
+    const photoLabel = "selfie";
     
     if (!selfieData) {
       alert(`Capture ${photoLabel}`);
@@ -365,63 +365,10 @@ const SalesApp = () => {
 
     const { region, shop, sold, reason, otherReason } = visitForm;
 
-    // Handle Uplift Visit
+    // Uplift flow has moved to a dedicated page
     if (visitType === "Uplift") {
-      let skusPayload = [];
-      availableSKUs.forEach(sku => {
-        const qty = skuQuantities[sku];
-        if (qty > 0) skusPayload.push({ name: sku, qty });
-      });
-      if (skusPayload.length === 0) {
-        alert("Select SKU quantity");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const record = {
-        nationalID: currentUser.nationalID,
-        name: currentUser.name,
-        region,
-        shopName: shop,
-        skus: skusPayload,
-        receiptPhoto: selfieData,
-        longitude: capturedCoords.longitude,
-        latitude: capturedCoords.latitude
-      };
-
-      console.log("Submitting uplift record with coordinates:", {
-        longitude: capturedCoords.longitude,
-        latitude: capturedCoords.latitude
-      });
-
-      try {
-        await apiService.saveUpliftVisit(record);
-        
-        // Show success overlay
-        setSubmittedVisitType("Uplift");
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 1600);
-
-        // Reset form
-        setVisitForm({
-          visitType: "",
-          region: "",
-          shop: "",
-          sold: "",
-          reason: "",
-          otherReason: ""
-        });
-        setSelfieData("");
-        setSkuQuantities(availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {}));
-        
-        // Reload dashboard
-        loadDashboard(currentUser.nationalID);
-      } catch (error) {
-        alert("Submission failed. Please try again.");
-        console.error(error);
-      } finally {
-        setIsSubmitting(false);
-      }
+      alert('Please use the Uplift page (Upload receipt)');
+      setIsSubmitting(false);
       return;
     }
 
@@ -840,6 +787,11 @@ const SalesApp = () => {
         {/* Form Card */}
         <div className="card-custom">
           <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: 12 }}>
+              <button type="button" className="btn btn-outline-primary w-100 mb-3" onClick={() => navigate('/uplift')}>
+                Uplift (Upload receipt)
+              </button>
+            </div>
             <label>Visit Type</label>
             <select 
               className="form-select" 
@@ -847,10 +799,8 @@ const SalesApp = () => {
               onChange={(e) => {
                 const newType = e.target.value;
                 setVisitForm(prev => ({ ...prev, visitType: newType }));
-                // Switch camera based on visit type
-                if (newType === "Uplift") {
-                  startCamera("environment"); // Rear camera
-                } else if (newType === "Shop Visit") {
+                // Switch camera based on visit type (Shop Visit uses front camera)
+                if (newType === "Shop Visit") {
                   startCamera("user"); // Front camera
                 }
                 // Reset photo when changing visit type
@@ -859,7 +809,6 @@ const SalesApp = () => {
               required
             >
               <option value="">Select visit type</option>
-              <option>Uplift</option>
               <option>Shop Visit</option>
             </select>
 
@@ -906,7 +855,7 @@ const SalesApp = () => {
                 )}
 
                 {/* SKU Section */}
-                {(visitForm.visitType === "Uplift" || visitForm.sold === "Yes") && (
+                {(visitForm.sold === "Yes") && (
                   <div className="mt-3">
                     <label><strong>Select SKU & quantity</strong></label>
                     <div className="mt-2">
@@ -961,9 +910,7 @@ const SalesApp = () => {
                 )}
 
                 {/* Photo Capture */}
-                <label className="mt-3">
-                  {visitForm.visitType === "Uplift" ? "Receipt Photo" : "Selfie"}
-                </label>
+                <label className="mt-3">Selfie</label>
                 <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
                   <video 
                     ref={videoRef}
@@ -1026,7 +973,7 @@ const SalesApp = () => {
                       Submitting...
                     </>
                   ) : (
-                    visitForm.visitType === "Uplift" ? 'Submit Uplift' : 'Submit Visit'
+                    'Submit Visit'
                   )}
                 </button>
               </>

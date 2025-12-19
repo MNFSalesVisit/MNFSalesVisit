@@ -34,13 +34,7 @@ const AdminDashboard = () => {
   const [showModal, setShowModal] = useState(false);
   const [mapType, setMapType] = useState('visits'); // 'visits' or 'uplifts'
   
-  // Uplift verification state
-  const [pendingUplifts, setPendingUplifts] = useState([]);
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [selectedUplift, setSelectedUplift] = useState(null);
-  const [rejectionReason, setRejectionReason] = useState("");
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [receiptImageUrl, setReceiptImageUrl] = useState("");
+  // Uplift verification state removed (no in-app review UI)
   
   // Filter state
   const [filters, setFilters] = useState({
@@ -54,6 +48,10 @@ const AdminDashboard = () => {
   const [allTargets, setAllTargets] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [targetEdits, setTargetEdits] = useState({});
+  // SKU analysis state
+  const [skuAnalysis, setSkuAnalysis] = useState([]);
+  const [skuOptions, setSkuOptions] = useState([]);
+  const [selectedSKU, setSelectedSKU] = useState('');
 
   // Auth check and initial data load
   useEffect(() => {
@@ -75,7 +73,6 @@ const AdminDashboard = () => {
     fetchAllVisits();
     fetchAllUplifts();
     loadSummary();
-    fetchPendingUplifts();
     fetchAllTargets();
     fetchUsers();
   }, [navigate]);
@@ -129,59 +126,22 @@ const AdminDashboard = () => {
     }
   };
 
-  // Fetch pending uplifts
-  const fetchPendingUplifts = async () => {
+  // Load SKU analysis for dropdown and quick stats
+  const loadSKUAnalysis = async () => {
     try {
-      const uplifts = await apiService.getPendingUplifts();
-      setPendingUplifts(uplifts);
-    } catch (error) {
-      console.error('Failed to fetch pending uplifts:', error);
-      setPendingUplifts([]);
+      const params = { month: filters.month ? Number(filters.month) : null, year: Number(filters.year) };
+      const data = await apiService.getSKUAnalysis(params);
+      setSkuAnalysis(Array.isArray(data) ? data : []);
+      const names = (Array.isArray(data) ? data : []).map(s => s.sku).sort();
+      setSkuOptions(names);
+    } catch (err) {
+      console.error('Failed to load SKU analysis:', err);
+      setSkuAnalysis([]);
+      setSkuOptions([]);
     }
   };
 
-  // Approve uplift
-  const handleApproveUplift = async (uplift) => {
-    if (!confirm(`Approve uplift from ${uplift.name} for ${uplift.totalCartons} cartons?`)) {
-      return;
-    }
-
-    try {
-      await apiService.approveUplift(uplift.rowIndex, currentUser.name);
-      alert('Uplift approved successfully!');
-      fetchPendingUplifts();
-    } catch (error) {
-      console.error('Failed to approve uplift:', error);
-      alert('Failed to approve uplift. Please try again.');
-    }
-  };
-
-  // Show reject modal
-  const showRejectModalFor = (uplift) => {
-    setSelectedUplift(uplift);
-    setRejectionReason("");
-    setShowRejectModal(true);
-  };
-
-  // Reject uplift
-  const handleRejectUplift = async () => {
-    if (!rejectionReason.trim()) {
-      alert('Please provide a rejection reason.');
-      return;
-    }
-
-    try {
-      await apiService.rejectUplift(selectedUplift.rowIndex, rejectionReason, currentUser.name);
-      alert('Uplift rejected successfully!');
-      setShowRejectModal(false);
-      setSelectedUplift(null);
-      setRejectionReason("");
-      fetchPendingUplifts();
-    } catch (error) {
-      console.error('Failed to reject uplift:', error);
-      alert('Failed to reject uplift. Please try again.');
-    }
-  };
+  // Uplift review handlers removed (admin-side review disabled)
 
   // Fetch all targets
   const fetchAllTargets = async () => {
@@ -317,6 +277,11 @@ const AdminDashboard = () => {
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
   };
+
+  // Refresh SKU analysis when filters change (month/year)
+  useEffect(() => {
+    loadSKUAnalysis();
+  }, [filters.month, filters.year]);
 
   // Export CSV
   const exportCSV = () => {
@@ -1070,6 +1035,20 @@ const AdminDashboard = () => {
               </select>
             </div>
 
+            <div className="mb-4">
+              <label className="filter-label">🧾 SKU Analysis</label>
+              <select
+                className="form-select modern-input"
+                value={selectedSKU}
+                onChange={(e) => setSelectedSKU(e.target.value)}
+              >
+                <option value="">All SKUs</option>
+                {skuOptions.map(sku => (
+                  <option key={sku} value={sku}>{sku}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="d-grid gap-3">
               <button className="btn btn-primary-custom" onClick={loadSummary}>
                 📈 Update Dashboard
@@ -1077,6 +1056,64 @@ const AdminDashboard = () => {
               <button className="btn btn-secondary-custom" onClick={exportCSV}>
                 📊 Export Data (CSV)
               </button>
+            </div>
+
+            {/* SKU quick view */}
+            <div style={{ marginTop: 12 }}>
+              {selectedSKU ? (
+                (() => {
+                  const entry = skuAnalysis.find(s => s.sku === selectedSKU) || null;
+                  return entry ? (
+                    <div className="card-custom p-3" style={{ background: '#fff' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontWeight: 700 }}>{entry.sku}</div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div><strong>Cartons:</strong> {entry.totalCartons}</div>
+                          <div><strong>Visits:</strong> {entry.totalVisits}</div>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 12, fontWeight: 700 }}>Salesperson contributions</div>
+                      <div style={{ marginTop: 8 }}>
+                        <table className="table table-sm">
+                          <thead>
+                            <tr><th>Salesperson</th><th>Cartons</th><th>Visits</th><th>Share%</th></tr>
+                          </thead>
+                          <tbody>
+                            {entry.salesByPerson && entry.salesByPerson.length > 0 ? (
+                              entry.salesByPerson.map(p => (
+                                <tr key={p.name}>
+                                  <td>{p.name}</td>
+                                  <td>{p.totalCartons}</td>
+                                  <td>{p.totalVisits}</td>
+                                  <td>{p.sharePercent}%</td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr><td colSpan={4} className="small-muted">No salesperson data</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="small-muted">No data for selected SKU</div>
+                  );
+                })()
+              ) : (
+                <div className="card-custom p-2" style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Top SKUs</div>
+                  <table className="table table-sm" style={{ marginBottom: 0 }}>
+                    <thead>
+                      <tr><th>SKU</th><th>Cartons</th><th>Visits</th></tr>
+                    </thead>
+                    <tbody>
+                      {skuAnalysis.map(s => (
+                        <tr key={s.sku}><td>{s.sku}</td><td>{s.totalCartons}</td><td>{s.totalVisits}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1102,147 +1139,101 @@ const AdminDashboard = () => {
 
         {/* Right Panel - Data */}
         <div className="col-lg-8" style={{ animation: 'slideUp 0.6s ease-out 0.2s both' }}>
-          {/* Uplift Verification Requests */}
-          <div className="dashboard-card p-4 mb-4">
+          {/* Pending Uplifts (keep approve/reject + Download; no image preview or modal) */}
+
+          <div className="dashboard-card p-4 mb-4" style={{ animation: 'slideUp 0.6s ease-out 0.2s both' }}>
             <div className="d-flex justify-content-between align-items-center mb-3">
               <div>
-                <div className="section-title">
-                  📦 Uplift Verification Requests
-                  {pendingUplifts.length > 0 && (
-                    <span 
-                      className="badge bg-danger ms-2" 
-                      style={{ 
-                        fontSize: '0.8rem', 
-                        borderRadius: '50%',
-                        width: '24px',
-                        height: '24px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        animation: 'pulse 2s infinite'
-                      }}
-                    >
-                      {pendingUplifts.length}
-                    </span>
-                  )}
-                </div>
-                <div className="section-subtitle">Review and approve stock uplift requests</div>
+                <div className="section-title">🧾 Pending Uplifts</div>
+                <div className="section-subtitle">Review pending uplift requests (no inline preview)</div>
+              </div>
+              <div>
+                <button className="btn btn-secondary-custom" onClick={fetchAllUplifts}>🔄 Refresh</button>
               </div>
             </div>
-            
-            {pendingUplifts.length === 0 ? (
-              <div className="text-center text-muted py-4">
-                <i className="bi bi-check-circle" style={{ fontSize: '3rem' }}></i>
-                <p className="mt-2">No pending uplift requests</p>
-              </div>
-            ) : (
-              <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                {pendingUplifts.map((uplift, index) => (
-                  <div 
-                    key={index} 
-                    className="card mb-3"
-                    style={{ 
-                      border: '1px solid #dee2e6',
-                      borderRadius: '8px',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <div className="card-body">
-                      <div className="row">
-                        <div className="col-md-3">
-                          <div className="mb-2">
-                            <small className="text-muted">Receipt Photo</small>
-                            {uplift.receiptPhoto ? (
-                              <>
-                                <img 
-                                  src={uplift.receiptPhoto} 
-                                  alt="Receipt" 
-                                  style={{
-                                    width: '100%',
-                                    maxWidth: '200px',
-                                    borderRadius: '8px',
-                                    border: '2px solid #ddd',
-                                    cursor: 'pointer',
-                                    display: 'block',
-                                    marginBottom: '8px'
-                                  }}
-                                  onClick={() => {
-                                    setReceiptImageUrl(uplift.receiptPhoto);
-                                    setShowReceiptModal(true);
-                                  }}
-                                />
-                                <div className="d-flex gap-2">
-                                  <button 
-                                    className="btn btn-sm btn-outline-primary"
-                                    onClick={() => {
-                                      setReceiptImageUrl(uplift.receiptPhoto);
-                                      setShowReceiptModal(true);
-                                    }}
-                                  >
-                                    <i className="bi bi-eye me-1"></i>View
-                                  </button>
-                                  <a 
-                                    href={uplift.receiptPhoto} 
-                                    download={`receipt_${uplift.nationalID}_${new Date(uplift.timestamp).toISOString().slice(0,10)}.jpg`}
-                                    className="btn btn-sm btn-outline-success"
-                                  >
-                                    <i className="bi bi-download me-1"></i>Download
-                                  </a>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="text-muted">No photo</div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="col-md-6">
-                          <h6 className="mb-2">
-                            <i className="bi bi-person-circle me-2"></i>
-                            {uplift.name}
-                          </h6>
-                          <div className="small mb-1">
-                            <strong>National ID:</strong> {uplift.nationalID}
-                          </div>
-                          <div className="small mb-1">
-                            <strong>Region:</strong> {uplift.region}
-                          </div>
-                          <div className="small mb-1">
-                            <strong>Shop:</strong> {uplift.shopName}
-                          </div>
-                          <div className="small mb-1">
-                            <strong>SKUs:</strong> {uplift.skus}
-                          </div>
-                          <div className="small mb-1">
-                            <strong>Total Cartons:</strong> 
-                            <span className="badge bg-primary ms-1">{uplift.totalCartons}</span>
-                          </div>
-                          <div className="small mb-1 text-muted">
-                            <i className="bi bi-clock me-1"></i>
-                            {new Date(uplift.timestamp).toLocaleString()}
-                          </div>
-                        </div>
-                        <div className="col-md-3 d-flex flex-column justify-content-center">
-                          <button 
-                            className="btn btn-success btn-sm mb-2 w-100"
-                            onClick={() => handleApproveUplift(uplift)}
+
+            <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+              <table className="table data-table mb-0">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Name</th>
+                    <th>Shop</th>
+                    <th>SKUs</th>
+                    <th>Cartons</th>
+                    <th>Receipt</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allUplifts && allUplifts.filter(u => String(u.status || '').toLowerCase() === 'pending').map((u, idx) => (
+                    <tr key={idx}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{u.timestamp ? new Date(u.timestamp).toLocaleString() : ''}</td>
+                      <td style={{ fontWeight: '600' }}>{u.name || u.nationalID}</td>
+                      <td>{u.shopName || ''}</td>
+                      <td style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.skus || ''}</td>
+                      <td>{u.totalCartons || 0}</td>
+                      <td>
+                        {u.receiptPhoto ? (
+                          <a href={u.receiptPhoto} target="_blank" rel="noreferrer">Download</a>
+                        ) : (
+                          <span className="small-muted">No receipt</span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            className="btn btn-sm"
+                            style={{ background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', color: '#063' }}
+                            onClick={async () => {
+                              try {
+                                if (!u.rowIndex) return alert('Missing row index');
+                                const res = await apiService.approveUplift(u.rowIndex, currentUser?.name || currentUser?.nationalID || 'admin');
+                                if (res && res.success) {
+                                  alert('Uplift approved');
+                                  fetchAllUplifts();
+                                } else {
+                                  alert('Approve failed');
+                                }
+                              } catch (e) {
+                                console.error(e);
+                                alert('Approve error');
+                              }
+                            }}
                           >
-                            <i className="bi bi-check-circle me-1"></i>
-                            Approve
+                            ✅ Approve
                           </button>
-                          <button 
-                            className="btn btn-danger btn-sm w-100"
-                            onClick={() => showRejectModalFor(uplift)}
+
+                          <button
+                            className="btn btn-sm"
+                            style={{ background: '#fff3cd', border: '1px solid #ffe8a1' }}
+                            onClick={async () => {
+                              try {
+                                const reason = prompt('Rejection reason (required)');
+                                if (!reason) return alert('Rejection cancelled');
+                                if (!u.rowIndex) return alert('Missing row index');
+                                const res = await apiService.rejectUplift(u.rowIndex, reason, currentUser?.name || currentUser?.nationalID || 'admin');
+                                if (res && res.success) {
+                                  alert('Uplift rejected');
+                                  fetchAllUplifts();
+                                } else {
+                                  alert('Reject failed');
+                                }
+                              } catch (e) {
+                                console.error(e);
+                                alert('Reject error');
+                              }
+                            }}
                           >
-                            <i className="bi bi-x-circle me-1"></i>
-                            Reject
+                            ❌ Reject
                           </button>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Map */}
@@ -1618,120 +1609,9 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* Rejection Modal */}
-      {showRejectModal && selectedUplift && (
-        <div className="modal d-block" style={{ 
-          position: 'fixed',
-          zIndex: 2000,
-          backgroundColor: 'rgba(0,0,0,0.6)',
-          backdropFilter: 'blur(8px)'
-        }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content" style={{
-              background: 'white',
-              borderRadius: '20px',
-              border: 'none',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-              overflow: 'hidden'
-            }}>
-              <div className="modal-header">
-                <h5 className="modal-title">Reject Uplift</h5>
-                <button 
-                  type="button" 
-                  className="btn-close" 
-                  onClick={() => setShowRejectModal(false)}
-                ></button>
-              </div>
-              <div className="modal-body">
-                <p>Rejecting uplift from <strong>{selectedUplift.name}</strong> for <strong>{selectedUplift.totalCartons} cartons</strong>.</p>
-                <div className="mb-3">
-                  <label className="form-label">Rejection Reason *</label>
-                  <textarea 
-                    className="form-control"
-                    rows="4"
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    placeholder="Please provide a reason for rejection..."
-                    required
-                  />
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => setShowRejectModal(false)}
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="button" 
-                  className="btn btn-danger" 
-                  onClick={handleRejectUplift}
-                >
-                  Reject Uplift
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Rejection modal removed (admin uplift review disabled) */}
 
-      {/* Receipt Image Modal */}
-      {showReceiptModal && (
-        <div 
-          className="modal show d-block" 
-          style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}
-          onClick={() => setShowReceiptModal(false)}
-        >
-          <div 
-            className="modal-dialog modal-dialog-centered modal-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  <i className="bi bi-receipt me-2"></i>
-                  Receipt Photo
-                </h5>
-                <button 
-                  type="button" 
-                  className="btn-close" 
-                  onClick={() => setShowReceiptModal(false)}
-                ></button>
-              </div>
-              <div className="modal-body text-center" style={{ maxHeight: '70vh', overflow: 'auto' }}>
-                <img 
-                  src={receiptImageUrl} 
-                  alt="Receipt" 
-                  style={{
-                    maxWidth: '100%',
-                    height: 'auto',
-                    borderRadius: '8px'
-                  }}
-                />
-              </div>
-              <div className="modal-footer">
-                <a 
-                  href={receiptImageUrl} 
-                  download={`receipt_${new Date().toISOString().slice(0,10)}.jpg`}
-                  className="btn btn-success"
-                >
-                  <i className="bi bi-download me-2"></i>
-                  Download
-                </a>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => setShowReceiptModal(false)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Receipt modal removed (receipts not reviewed here) */}
     </div>
   );
 };
