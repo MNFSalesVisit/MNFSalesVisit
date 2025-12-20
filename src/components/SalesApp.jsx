@@ -10,6 +10,7 @@ const SalesApp = () => {
   
   // State management
   const [currentUser, setCurrentUser] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [showLogin, setShowLogin] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedVisitType, setSubmittedVisitType] = useState("");
@@ -513,13 +514,35 @@ const SalesApp = () => {
           />
 
           <label className="mt-3">Password</label>
-          <input
-            className="form-control"
-            type="password"
-            value={loginForm.password}
-            onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
-            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              className="form-control"
+              type={showPassword ? 'text' : 'password'}
+              value={loginForm.password}
+              onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
+              onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+              style={{ paddingRight: 44 }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(s => !s)}
+              style={{
+                position: 'absolute',
+                right: 8,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                border: 'none',
+                background: 'transparent',
+                padding: 6,
+                fontSize: 18,
+                  color: '#555',
+                  zIndex: 5
+              }}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              <i className={`bi bi-${showPassword ? 'eye-slash' : 'eye'}`}></i>
+            </button>
+          </div>
 
           <button className="btn btn-danger w-100 mt-3" onClick={handleLogin}>
             Login
