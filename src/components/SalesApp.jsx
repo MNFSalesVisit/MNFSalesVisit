@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
+import logoSrc from '../assets/Indomie_Logo (1).png';
 
 const SalesApp = () => {
   const navigate = useNavigate();
@@ -497,6 +498,9 @@ const SalesApp = () => {
     return (
       <div className="container-root">
         <div className="card-custom">
+          <div style={{ textAlign: 'center', marginBottom: 10 }}>
+            <img src={logoSrc} alt="logo" style={{ height: 72, objectFit: 'contain' }} />
+          </div>
           <h4 style={{ textAlign: "center" }}>Sales Visit App</h4>
           <p className="small-muted text-center">Enter your National ID and password.</p>
 
@@ -542,6 +546,11 @@ const SalesApp = () => {
       </div>
 
       <div className="container-root">
+        {/* Logo above top bar (not inside the bar) */}
+        <div style={{ textAlign: 'center', marginBottom: -12 }}>
+          <img src={logoSrc} alt="logo" style={{ height: 64, objectFit: 'contain', display: 'inline-block' }} />
+        </div>
+
         {/* Top Bar */}
         <div id="topHeading">
           <div className="dateText">{formatHeadingDate()}</div>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import logoSrc from '../assets/Indomie_Logo (1).png';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
 
@@ -130,11 +131,14 @@ export default function UpliftPage() {
   return (
     <div className="container-root">
       <div className="card-custom" style={{ padding: 20 }}>
+        <div style={{ textAlign: 'center', marginBottom: 10 }}>
+          <img src={logoSrc} alt="logo" style={{ height: 64, objectFit: 'contain' }} />
+        </div>
         <h2 style={{ marginTop: 0 }}>Uplift — Upload Receipt</h2>
         <p className="small-muted">Use this form to submit stock uplifts. Upload receipt images, select SKUs and quantities.</p>
 
         <style>{`
-          .modern-input { background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 12px; padding: 10px 12px; width:100%; font-weight:500; }
+          .modern-input { background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 12px; padding: 10px 12px; width:100%; font-weight:500; box-sizing: border-box; }
           .modern-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 6px 20px rgba(217,4,41,0.08); background: #fff; }
           .btn-primary-custom { background: linear-gradient(135deg, #d90429 0%, #a4031f 100%); border:none; color:white; padding:10px 18px; border-radius:10px; font-weight:700; cursor:pointer; box-shadow: 0 8px 20px rgba(217,4,41,0.12); }
           .btn-primary-custom:hover { transform: translateY(-2px); }
@@ -142,7 +146,35 @@ export default function UpliftPage() {
           .btn-secondary-custom:hover { transform: translateY(-2px); }
           .dropzone { border: 2px dashed #e9ecef; border-radius:12px; padding:18px; text-align:center; cursor:pointer; transition: all .15s ease; }
           .dropzone.drag { border-color: var(--primary); background: rgba(217,4,41,0.03); }
-          .thumb { width:110px; border-radius:8px; border:1px solid #eaeaea; }
+          .thumb { width:110px; border-radius:8px; border:1px solid #eaeaea; height: auto; object-fit: cover; }
+
+          /* Card width and centering for mobile */
+          .card-custom { max-width: 480px; margin: 12px auto; box-sizing: border-box; }
+
+          /* SKU layout responsive */
+          @media (max-width: 520px) {
+            .card-custom { margin: 8px; padding: 14px; }
+            .thumb { width:88px; }
+            .dropzone { padding:12px; }
+            .modern-input { padding: 10px; }
+            .qty-buttons button { width:34px; height:34px; padding: 0; font-size: 18px; }
+            .qty-buttons { gap:6px; }
+            .qty-buttons div { min-width: 28px; }
+            /* make SKU blocks wrap better */
+            .sku-grid { display:flex; gap:8px; flex-wrap:wrap; }
+            .sku-grid > div { flex: 1 1 45%; max-width: 48%; box-sizing: border-box; }
+
+            /* Buttons stack on small screens */
+            .btn-primary-custom, .btn-secondary-custom { display:block; width:100%; margin-bottom:8px; }
+
+            /* Media elements scale */
+            video#camera { width:100%; height:auto; max-height:360px; border-radius:8px; background:#000; }
+            img#preview { width:100%; height:auto; max-height:220px; object-fit:cover; border-radius:8px; }
+          }
+
+          @media (min-width: 521px) {
+            .sku-grid > div { width: 120px; }
+          }
         `}</style>
 
         <form onSubmit={handleSubmit}>
