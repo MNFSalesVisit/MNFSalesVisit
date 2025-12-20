@@ -11,6 +11,7 @@ const SalesApp = () => {
   // State management
   const [currentUser, setCurrentUser] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [showLogin, setShowLogin] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedVisitType, setSubmittedVisitType] = useState("");
@@ -82,16 +83,19 @@ const SalesApp = () => {
 
   // Login function
   const handleLogin = async () => {
+    if (loginLoading) return;
+
     const { nationalID, password } = loginForm;
-    
+
     if (!nationalID || !password) {
       alert("Enter National ID & Password");
       return;
     }
 
+    setLoginLoading(true);
     try {
       const data = await apiService.login(nationalID, password);
-      
+
       if (!data.success) {
         alert("Invalid credentials");
         return;
@@ -112,6 +116,8 @@ const SalesApp = () => {
     } catch (error) {
       alert("Login failed. Please try again.");
       console.error(error);
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -544,8 +550,20 @@ const SalesApp = () => {
             </button>
           </div>
 
-          <button className="btn btn-danger w-100 mt-3" onClick={handleLogin}>
-            Login
+          <button
+            className="btn btn-danger w-100 mt-3"
+            onClick={handleLogin}
+            disabled={loginLoading}
+            aria-busy={loginLoading}
+          >
+            {loginLoading ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                Logging in...
+              </>
+            ) : (
+              'Login'
+            )}
           </button>
         </div>
       </div>
