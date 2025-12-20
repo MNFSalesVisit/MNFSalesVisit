@@ -148,6 +148,11 @@ export default function UpliftPage() {
           .dropzone.drag { border-color: var(--primary); background: rgba(217,4,41,0.03); }
           .thumb { width:110px; border-radius:8px; border:1px solid #eaeaea; height: auto; object-fit: cover; }
 
+          /* SKU list vertical by default */
+          .sku-list { display:flex; flex-direction:column; gap:12px; }
+          .sku-item { display:flex; justify-content:space-between; align-items:center; padding:8px; border-radius:8px; border:1px solid #eee; background:#fff; }
+          .sku-item .sku-name { font-weight:700; }
+
           /* Card width and centering for mobile */
           .card-custom { max-width: 480px; margin: 12px auto; box-sizing: border-box; }
 
@@ -222,11 +227,11 @@ export default function UpliftPage() {
 
           <div style={{ marginBottom: 12 }}>
             <label>🧾 Select SKU & quantity</label>
-            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            <div className="sku-list" style={{ marginTop: 8 }}>
               {Object.keys(skuQuantities).map(sku => (
-                <div key={sku} style={{ textAlign: 'center', width: 120 }}>
-                  <div style={{ fontWeight: 700 }}>{sku}</div>
-                  <div className="qty-buttons" style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 8 }}>
+                <div key={sku} className="sku-item">
+                  <div className="sku-name">{sku}</div>
+                  <div className="qty-buttons" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <button type="button" className="btn-secondary-custom" onClick={() => changeQuantity(sku, -1)}>-</button>
                     <div style={{ minWidth: 36, textAlign: 'center', fontWeight: 700 }}>{skuQuantities[sku]}</div>
                     <button type="button" className="btn-primary-custom" onClick={() => changeQuantity(sku, 1)}>+</button>
