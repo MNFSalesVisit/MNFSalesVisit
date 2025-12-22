@@ -16,6 +16,7 @@ const SalesApp = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedVisitType, setSubmittedVisitType] = useState("");
   const [isDark, setIsDark] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [selfieData, setSelfieData] = useState("");
   const [coords, setCoords] = useState({ latitude: "", longitude: "" });
   const [cameraFacing, setCameraFacing] = useState("user");
@@ -42,6 +43,13 @@ const SalesApp = () => {
   const [skuQuantities, setSkuQuantities] = useState(
     availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {})
   );
+
+  // Vehicle emoji mapping
+  const VEHICLE_EMOJI = {
+    Motorbike: '🏍️',
+    Bicycle: '🚲',
+    Van: '🚐'
+  };
 
   // Format date for heading
   const formatHeadingDate = () => {
@@ -80,6 +88,20 @@ const SalesApp = () => {
       document.body.classList.remove('dark');
     }
   }, [isDark]);
+
+  // Show scroll-to-top button when user scrolls down
+  useEffect(() => {
+    const onScroll = () => {
+      try {
+        setShowScrollTop(window.scrollY > 200);
+      } catch (e) {
+        // ignore in SSR or restricted environments
+      }
+    };
+    window.addEventListener('scroll', onScroll);
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Login function
   const handleLogin = async () => {
@@ -572,6 +594,13 @@ const SalesApp = () => {
 
   return (
     <>
+      <style>{`
+        @keyframes userBounce {
+          0% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+          100% { transform: translateY(0); }
+        }
+      `}</style>
       {/* Success Overlay */}
       <div className={`success-overlay ${showSuccess ? 'show' : ''}`}>
         <div className="success-box card-custom" style={{ textAlign: "center", maxWidth: "260px" }}>
@@ -616,9 +645,22 @@ const SalesApp = () => {
               <div className="small-muted">Month-to-date</div>
               <h5>Your Analytics</h5>
             </div>
-            <div className="text-end small-muted">
-              {currentUser?.name}<br />
-              {currentUser?.nationalID}
+            <div className="text-end small-muted" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i
+                  className="bi bi-person-circle"
+                  aria-hidden="true"
+                  style={{ fontSize: 20, color: '#dc3545', animation: 'userBounce 1.6s ease-in-out infinite' }}
+                ></i>
+                <strong style={{ fontSize: '0.95rem', color: '#dc3545' }}>{currentUser?.name}</strong>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#666' }}>{currentUser?.nationalID}</div>
+              {currentUser?.vehicle && (
+                <div style={{ marginTop: 6, fontSize: '0.85rem', color: '#555', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>{VEHICLE_EMOJI[currentUser.vehicle] || '🚗'}</span>
+                  <span>{currentUser.vehicle}</span>
+                </div>
+              )}
             </div>
           </div>
           
@@ -835,7 +877,7 @@ const SalesApp = () => {
         )}
 
         {/* Form Card */}
-        <div className="card-custom">
+        <div className="card-custom" style={{ position: 'relative' }}>
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: 12 }}>
               <button type="button" className="btn btn-outline-primary w-100 mb-3" onClick={() => navigate('/uplift')}>
@@ -1040,6 +1082,32 @@ const SalesApp = () => {
               © 2025 MNF Sales. All rights reserved.
             </div>
           </div>
+
+          {/* Place back-to-top button inside the form card frame */}
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            aria-label="Back to top"
+            style={{
+              position: 'absolute',
+              bottom: 18,
+              right: 18,
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: '#dc3545',
+              color: '#fff',
+              border: 'none',
+              display: showScrollTop ? 'flex' : 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '18px',
+              boxShadow: '0 4px 10px rgba(0,0,0,0.12)',
+              zIndex: 20,
+              cursor: 'pointer'
+            }}
+          >
+            <i className="bi bi-arrow-up-short" style={{ fontSize: '22px', lineHeight: 1 }}></i>
+          </button>
         </div>
       </div>
 
