@@ -118,6 +118,18 @@ class ApiService {
     });
   }
 
+  async getAllUsers() {
+    return await this.request({ action: "getAllUsers" });
+  }
+
+  async setUser(nationalID, password, name, role, vehicle, region) {
+    return await this.request({ action: "setUser", nationalID, password, name, role, vehicle, region });
+  }
+
+  async deleteUser(nationalID) {
+    return await this.request({ action: "deleteUser", nationalID });
+  }
+
   async getUserProgress(nationalID) {
     return await this.request({
       action: "getUserProgress",
@@ -135,6 +147,14 @@ class ApiService {
   async getAllUsersStockBalance() {
     return await this.request({
       action: "getAllUsersStockBalance"
+    });
+  }
+
+  async deleteUpliftReceipt(rowIndex, requestedBy) {
+    return await this.request({
+      action: "deleteUpliftReceipt",
+      rowIndex,
+      requestedBy
     });
   }
 }

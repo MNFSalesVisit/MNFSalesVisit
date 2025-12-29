@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import SalesApp from './components/SalesApp';
-import AdminDashboard from './components/AdminDashboard';
+import AdminDashboard from './components/AdminDashboard_redesigned';
 import UpliftPage from './components/UpliftPage';
 
 function App() {

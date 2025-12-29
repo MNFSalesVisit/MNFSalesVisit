@@ -46,11 +46,235 @@ const AdminDashboard = () => {
     year: new Date().getFullYear(),
     month: "",
     type: "monthly",
-    salesperson: ""
+    salesperson: "",
+    sku: "",
+    region: "",
+    subregion: ""
   });
+
+  // Targets state (per-user)
+  const [allTargets, setAllTargets] = useState([]);
+  const [targetEdits, setTargetEdits] = useState({});
+  const [bulkSaving, setBulkSaving] = useState(false);
+  // Users management state
+  const [allUsers, setAllUsers] = useState([]);
+  const [userForm, setUserForm] = useState({ nationalID: '', password: '', name: '', role: 'user', vehicle: '', region: '' });
 
   // Auth check and initial data load
   useEffect(() => {
+
+  // load targets when targets tab is opened
+  }, [/* keep placeholder for existing effect end */]);
+
+  useEffect(() => {
+    if (activeTab === 'targets') {
+      fetchAllTargets();
+    }
+    if (activeTab === 'usersetup') {
+      fetchAllUsers();
+    }
+  }, [activeTab]);
+
+  // Fetch users for User Setup tab
+  const fetchAllUsers = async () => {
+    try {
+      const users = await apiService.getAllUsers();
+      setAllUsers(Array.isArray(users) ? users : []);
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+      setAllUsers([]);
+    }
+  };
+
+  // Render User Setup tab
+  const renderUsersTab = () => {
+    return (
+      <div className="tab-content-wrapper">
+        <div className="dashboard-card p-4 mb-4">
+          <div className="section-title">👥 User Setup</div>
+          <div className="section-subtitle">Create or edit salesperson accounts</div>
+          <div className="row g-2 mt-3">
+            <div className="col-md-2">
+              <input className="form-control" placeholder="National ID" value={userForm.nationalID} onChange={(e) => handleUserFormChange('nationalID', e.target.value)} />
+            </div>
+            <div className="col-md-2">
+              <input className="form-control" placeholder="Password" type="password" value={userForm.password} onChange={(e) => handleUserFormChange('password', e.target.value)} />
+            </div>
+            <div className="col-md-3">
+              <input className="form-control" placeholder="Name" value={userForm.name} onChange={(e) => handleUserFormChange('name', e.target.value)} />
+            </div>
+            <div className="col-md-2">
+              <select className="form-select" value={userForm.role} onChange={(e) => handleUserFormChange('role', e.target.value)}>
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="visually-hidden">Vehicle</label>
+              <select className="form-select" value={userForm.vehicle} onChange={(e) => handleUserFormChange('vehicle', e.target.value)}>
+                <option value="">Select vehicle</option>
+                <option value="Van">Van</option>
+                <option value="Motorbike">Motorbike</option>
+                <option value="Bicycle">Bicycle</option>
+                <option value="Tuk-tuk">Tuk-tuk</option>
+              </select>
+            </div>
+            <div className="col-md-1">
+              <label className="visually-hidden">Region</label>
+              <select className="form-select" value={userForm.region} onChange={(e) => handleUserFormChange('region', e.target.value)}>
+                <option value="">Select region</option>
+                <option value="Mombasa">Mombasa</option>
+                <option value="Nairobi">Nairobi</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-3">
+            <button className="btn btn-primary" onClick={handleCreateUser}>Create / Save</button>
+            <button className="btn btn-outline-secondary ms-2" onClick={fetchAllUsers}>Refresh</button>
+          </div>
+        </div>
+
+        <div className="dashboard-card p-4">
+          <div className="section-title">Existing Users</div>
+          <div className="table-responsive mt-3">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>National ID</th>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Vehicle</th>
+                  <th>Region</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {allUsers.map((u, idx) => (
+                  <tr key={idx}>
+                    <td>{u.nationalID}</td>
+                    <td>{u.name}</td>
+                    <td>{u.role}</td>
+                    <td>{u.vehicle}</td>
+                    <td>{u.region}</td>
+                    <td>
+                      <button className="btn btn-sm btn-success me-2" onClick={() => {
+                        // populate form for edit
+                        setUserForm({ nationalID: u.nationalID, password: '', name: u.name, role: u.role || 'user', vehicle: u.vehicle || '', region: u.region || '' });
+                      }}>Edit</button>
+                      <button className="btn btn-sm btn-primary me-2" onClick={() => handleSaveUser({ nationalID: u.nationalID, password: '', name: u.name, role: u.role || 'user', vehicle: u.vehicle || '', region: u.region || '' })}>Save</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDeleteUser(u.nationalID)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleUserFormChange = (field, value) => {
+    setUserForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveUser = async (user) => {
+    try {
+      const res = await apiService.setUser(user.nationalID, user.password || '', user.name || '', user.role || 'user', user.vehicle || '', user.region || '');
+      if (res && res.success) {
+        alert('User saved');
+        fetchAllUsers();
+      } else {
+        alert('Save failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Save failed');
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!userForm.nationalID || !userForm.password || !userForm.name) return alert('National ID, password and name are required');
+    await handleSaveUser(userForm);
+    setUserForm({ nationalID: '', password: '', name: '', role: 'user', vehicle: '', region: '' });
+  };
+
+  const handleDeleteUser = async (nationalID) => {
+    if (!confirm('Delete user ' + nationalID + '?')) return;
+    try {
+      const res = await apiService.deleteUser(nationalID);
+      if (res && res.success) {
+        alert('Deleted');
+        fetchAllUsers();
+      } else {
+        alert('Delete failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Delete failed');
+    }
+  };
+
+  // Auth check and initial data load (mount)
+  useEffect(() => {
+    const init = async () => {
+      const session = localStorage.getItem("userSession");
+      if (!session) {
+        alert("Not logged in.");
+        navigate('/');
+        return;
+      }
+
+      const user = JSON.parse(session);
+      if (!user.role || user.role.toLowerCase() !== "admin") {
+        alert("Unauthorized. This page is for admins only.");
+        navigate('/');
+        return;
+      }
+
+      setCurrentUser(user);
+
+      try {
+        const visits = await apiService.getAllVisits();
+        setAllVisits(Array.isArray(visits) ? visits : []);
+      } catch (err) {
+        console.error('Failed to load visits:', err);
+      }
+
+      try {
+        const uplifts = await apiService.getAllUpliftVisits();
+        setAllUplifts(Array.isArray(uplifts) ? uplifts : []);
+      } catch (err) {
+        console.error('Failed to load uplifts:', err);
+      }
+
+      try {
+        const p = await apiService.getPendingUplifts();
+        setPendingUplifts(Array.isArray(p) ? p : []);
+      } catch (err) {
+        console.error('Failed to load pending uplifts:', err);
+      }
+
+      try {
+        const summary = await apiService.getAdminSummary({ type: 'monthly', year: new Date().getFullYear() });
+        setSummaryData(summary || { users: [], regions: [], timeseries: { daily: [], weekly: [], monthly: [] } });
+      } catch (err) {
+        console.error('Failed to load summary:', err);
+      }
+
+      try {
+        const sku = await apiService.getSKUAnalysis({ year: new Date().getFullYear() });
+        setSKUData(Array.isArray(sku) ? sku : []);
+      } catch (err) {
+        console.error('Failed to load SKU analysis:', err);
+      }
+
+      // fetch targets if admin lands on page
+      fetchAllTargets();
+    };
+
+    init();
+  }, [navigate]);
 
   // Generate unique salespeople list
   const getSalespeopleOptions = () => {
@@ -75,6 +299,10 @@ const AdminDashboard = () => {
 
   // Handle filter changes
   const handleFilterChange = (field, value) => {
+    if (field === 'region') {
+      setFilters(prev => ({ ...prev, region: value, subregion: '' }));
+      return;
+    }
     setFilters(prev => ({ ...prev, [field]: value }));
   };
 
@@ -94,28 +322,180 @@ const AdminDashboard = () => {
 
   // Render Tab 1: Overview
   const renderOverviewTab = () => {
+    // Build SKU options from visits/uplifts
+    const getSKUOptions = () => {
+      const set = new Set();
+      const collectFrom = (arr) => arr.forEach(v => {
+        const s = String(v.skus || '');
+        if (!s) return;
+        s.split('|').map(x => x.trim()).forEach(pair => {
+          const parts = pair.split(':');
+          if (parts[0]) set.add(parts[0].trim());
+        });
+      });
+      collectFrom(allVisits || []);
+      collectFrom(allUplifts || []);
+      return Array.from(set).sort();
+    };
+
+    // Fixed region list and subregions mapping
+    const REGION_OPTIONS = ['Mombasa', 'Nairobi'];
+    const SUBREGIONS = {
+      Mombasa: ['', 'Mvita'], // '' means All Subregions
+      Nairobi: ['']
+    };
+
+    const getRegionOptions = () => REGION_OPTIONS;
+
+    const getFilteredOverviewVisits = () => {
+      return (allVisits || []).filter(v => {
+        if (!v.timestamp) return false;
+        const d = new Date(v.timestamp);
+        if (filters.year && Number(filters.year) !== d.getFullYear()) return false;
+        if (filters.month && Number(filters.month) !== (d.getMonth() + 1)) return false;
+        if (filters.salesperson) {
+          const nameMatch = v.name && v.name.toLowerCase().includes(String(filters.salesperson).toLowerCase());
+          const idMatch = v.nationalID && v.nationalID.toLowerCase().includes(String(filters.salesperson).toLowerCase());
+          if (!nameMatch && !idMatch) return false;
+        }
+        if (filters.region) {
+          const reg = String(v.region || '').toLowerCase();
+          if (reg !== String(filters.region).toLowerCase()) return false;
+        }
+        if (filters.subregion) {
+          const sub = String(filters.subregion).toLowerCase();
+          if (sub !== '') {
+            const visitSub = String(v.subregion || '').toLowerCase();
+            const shop = String(v.shopName || '').toLowerCase();
+            if (visitSub !== sub && !shop.includes(sub)) return false;
+          }
+        }
+        if (filters.sku) {
+          const skuStr = String(v.skus || '').toLowerCase();
+          if (!skuStr.includes(String(filters.sku).toLowerCase())) return false;
+        }
+        return true;
+      });
+    };
+
+    const exportFilteredToCSV = () => {
+      const rows = getFilteredOverviewVisits();
+      if (!rows || rows.length === 0) return alert('No data to export');
+
+      const headers = ["timestamp","nationalID","name","region","shopName","sold","skus","totalCartons","reason","longitude","latitude"];
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(r => [
+          r.timestamp ? new Date(r.timestamp).toISOString() : '',
+          csvSafe(r.nationalID),
+          csvSafe(r.name),
+          csvSafe(r.region),
+          csvSafe(r.shopName),
+          csvSafe(r.sold),
+          csvSafe(r.skus),
+          csvSafe(String(r.totalCartons || 0)),
+          csvSafe(r.reason),
+          csvSafe(String(r.longitude || '')),
+          csvSafe(String(r.latitude || ''))
+        ].join(','))
+      ].join('\n');
+
+      const filename = `visits_filtered_${new Date().toISOString().slice(0,10)}.csv`;
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    const skuOptions = getSKUOptions();
+    const regionOptions = getRegionOptions();
+
+    const filteredVisitsForDisplay = getFilteredOverviewVisits();
+
     return (
       <div className="tab-content-wrapper">
-        {/* Quick Stats Cards */}
+        {/* Filters row */}
+        <div className="dashboard-card p-3 mb-4">
+          <div className="row g-2 align-items-end">
+              <div className="col-md-3">
+              <label className="filter-label">Salesperson</label>
+              <select className="form-select modern-input" value={filters.salesperson} onChange={(e) => handleFilterChange('salesperson', e.target.value)}>
+                <option value="">All Salespeople</option>
+                {getSalespeopleOptions().map(name => (<option key={name} value={name}>{name}</option>))}
+              </select>
+            </div>
+              <div className="col-md-2">
+              <label className="filter-label">Year</label>
+              <select className="form-select modern-input" value={filters.year} onChange={(e) => handleFilterChange('year', e.target.value)}>
+                <option value="">All Years</option>
+                {getYearOptions().map(y => (<option key={y} value={y}>{y}</option>))}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="filter-label">Month</label>
+              <select className="form-select modern-input" value={filters.month} onChange={(e) => handleFilterChange('month', e.target.value)}>
+                <option value="">All Months</option>
+                <option value="1">January</option><option value="2">February</option>
+                <option value="3">March</option><option value="4">April</option>
+                <option value="5">May</option><option value="6">June</option>
+                <option value="7">July</option><option value="8">August</option>
+                <option value="9">September</option><option value="10">October</option>
+                <option value="11">November</option><option value="12">December</option>
+              </select>
+            </div>
+              <div className="col-md-2">
+                <label className="filter-label">Region</label>
+                <select className="form-select modern-input" value={filters.region} onChange={(e) => handleFilterChange('region', e.target.value)}>
+                  <option value="">All Regions</option>
+                  {regionOptions.map(r => (<option key={r} value={r}>{r}</option>))}
+                </select>
+              </div>
+              <div className="col-md-2">
+                <label className="filter-label">Subregion</label>
+                <select className="form-select modern-input" value={filters.subregion} onChange={(e) => handleFilterChange('subregion', e.target.value)} disabled={!filters.region}>
+                  <option value="">All Subregions</option>
+                  {(SUBREGIONS[filters.region] || []).filter(s => s).map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-md-2">
+                <label className="filter-label">SKU</label>
+                <select className="form-select modern-input" value={filters.sku} onChange={(e) => handleFilterChange('sku', e.target.value)}>
+                  <option value="">All SKUs</option>
+                  {skuOptions.map(s => (<option key={s} value={s}>{s}</option>))}
+                </select>
+              </div>
+              <div className="col-md-1 text-end">
+                <button className="btn btn-primary" onClick={exportFilteredToCSV}>Export CSV</button>
+              </div>
+          </div>
+        </div>
+        {/* Quick Stats Cards (based on filtered data) */}
         <div className="row g-4 mb-4">
           <div className="col-md-4">
             <div className="stat-card" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
               <div className="stat-icon">📊</div>
-              <div className="stat-value">{totals.visits}</div>
+              <div className="stat-value">{filteredVisitsForDisplay.length}</div>
               <div className="stat-label">Total Visits</div>
             </div>
           </div>
           <div className="col-md-4">
             <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }}>
               <div className="stat-icon">✅</div>
-              <div className="stat-value">{totals.sold}</div>
+              <div className="stat-value">{filteredVisitsForDisplay.filter(v => String(v.sold) === 'Yes').length}</div>
               <div className="stat-label">Sales Made</div>
             </div>
           </div>
           <div className="col-md-4">
             <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
               <div className="stat-icon">📦</div>
-              <div className="stat-value">{totals.cartons}</div>
+              <div className="stat-value">{filteredVisitsForDisplay.reduce((s, r) => s + (Number(r.totalCartons) || 0), 0)}</div>
               <div className="stat-label">Cartons Sold</div>
             </div>
           </div>
@@ -184,6 +564,31 @@ const AdminDashboard = () => {
                       >
                         ✗ Reject
                       </button>
+                      {uplift.receiptPhoto && (
+                        <button
+                          className="btn btn-outline-secondary w-100"
+                          onClick={async () => {
+                            if (!currentUser) return alert('Not authenticated');
+                            if (!confirm('Delete this uploaded receipt?')) return;
+                            try {
+                              const res = await apiService.deleteUpliftReceipt(uplift.rowIndex, currentUser.name || currentUser.nationalID);
+                              if (res && res.success) {
+                                alert('Receipt deleted');
+                                // refresh pending uplifts
+                                const p = await apiService.getPendingUplifts();
+                                setPendingUplifts(p);
+                              } else {
+                                alert('Delete failed: ' + (res && res.message ? res.message : 'Unknown'));
+                              }
+                            } catch (err) {
+                              console.error(err);
+                              alert('Delete failed');
+                            }
+                          }}
+                        >
+                          🗑️ Delete Receipt
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -232,406 +637,153 @@ const AdminDashboard = () => {
     );
   };
 
-  // Render Tab 2: Analytics
-  const renderAnalyticsTab = () => {
-    // Export functions
-    const exportUserCSV = () => {
-      const headers = ["Name", "National ID", "Visits", "Sold", "Cartons", "Efficiency"];
-      const csvContent = [
-        headers.join(","),
-        ...summaryData.users.map(user => [
-          csvSafe(user.name),
-          csvSafe(user.nationalID),
-          user.visits,
-          user.sold,
-          user.cartons,
-          user.efficiency
-        ].join(","))
-      ].join("\n");
-      downloadCSV(csvContent, `user_performance_${new Date().toISOString().slice(0,10)}.csv`);
-    };
+  // Render Tab: Targets (per-user)
+  const fetchAllTargets = async () => {
+    try {
+      const targets = await apiService.getAllTargets();
+      setAllTargets(Array.isArray(targets) ? targets : []);
+    } catch (err) {
+      console.error('Failed to fetch targets:', err);
+      setAllTargets([]);
+    }
+  };
 
-    const exportRegionCSV = () => {
-      const headers = ["Region", "Visits", "Sold", "Cartons", "Efficiency"];
-      const csvContent = [
-        headers.join(","),
-        ...summaryData.regions.map(region => [
-          csvSafe(region.region),
-          region.visits,
-          region.sold,
-          region.cartons,
-          region.efficiency
-        ].join(","))
-      ].join("\n");
-      downloadCSV(csvContent, `region_performance_${new Date().toISOString().slice(0,10)}.csv`);
-    };
+  const handleTargetChange = (nationalID, field, value) => {
+    setTargetEdits(prev => ({
+      ...prev,
+      [nationalID]: {
+        ...prev[nationalID],
+        [field]: value
+      }
+    }));
+  };
 
-    const exportSKUCSV = () => {
-      const headers = ["SKU", "Total Cartons", "Total Visits", "Salespeople Count"];
-      const csvContent = [
-        headers.join(","),
-        ...skuData.map(sku => [
-          csvSafe(sku.sku),
-          sku.totalCartons,
-          sku.totalVisits,
-          sku.salespeopleCount
-        ].join(","))
-      ].join("\n");
-      downloadCSV(csvContent, `sku_analysis_${new Date().toISOString().slice(0,10)}.csv`);
-    };
+  const getTargetValue = (nationalID, field) => {
+    if (targetEdits[nationalID] && targetEdits[nationalID][field] !== undefined) {
+      return targetEdits[nationalID][field];
+    }
+    const existing = allTargets.find(t => t.nationalID === nationalID);
+    return existing ? existing[field] : 0;
+  };
 
-    const downloadCSV = (content, filename) => {
-      const blob = new Blob([content], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    };
+  const handleSaveTarget = async (user) => {
+    const dailyTarget = Number(getTargetValue(user.nationalID, 'dailyTarget')) || 0;
+    const weeklyTarget = Number(getTargetValue(user.nationalID, 'weeklyTarget')) || 0;
+    const monthlyTarget = Number(getTargetValue(user.nationalID, 'monthlyTarget')) || 0;
 
+    try {
+      const res = await apiService.setUserTargets(user.nationalID, user.name, dailyTarget, weeklyTarget, monthlyTarget);
+      if (res && res.success) {
+        alert(`Targets saved for ${user.name || user.nationalID}`);
+        fetchAllTargets();
+        setTargetEdits(prev => { const p = { ...prev }; delete p[user.nationalID]; return p; });
+      } else {
+        alert('Failed to save targets');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save targets');
+    }
+  };
+
+  // Bulk save all edited targets (or current values)
+  const handleSaveAll = async () => {
+    if (!allTargets || allTargets.length === 0) return alert('No targets to save');
+    if (!confirm('Save targets for all listed salespeople?')) return;
+
+    setBulkSaving(true);
+    const promises = allTargets.map(u => {
+      const daily = Number(getTargetValue(u.nationalID, 'dailyTarget')) || 0;
+      const weekly = Number(getTargetValue(u.nationalID, 'weeklyTarget')) || 0;
+      const monthly = Number(getTargetValue(u.nationalID, 'monthlyTarget')) || 0;
+      return apiService.setUserTargets(u.nationalID, u.name || u.nationalID, daily, weekly, monthly);
+    });
+
+    const results = await Promise.allSettled(promises);
+    let success = 0, failed = 0;
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value && r.value.success) success++; else failed++;
+    });
+
+    setBulkSaving(false);
+    alert(`Bulk save complete — ${success} succeeded, ${failed} failed.`);
+    // refresh and clear edits
+    fetchAllTargets();
+    setTargetEdits({});
+  };
+
+  const renderTargetsTab = () => {
     return (
       <div className="tab-content-wrapper">
-        {/* Filter Section */}
-        <div className="dashboard-card p-4 mb-4">
-          <div className="section-title">🔍 Filters</div>
-          <div className="row g-3">
-            <div className="col-md-3">
-              <label className="filter-label">Year</label>
-              <select 
-                className="form-select modern-input"
-                value={filters.year}
-                onChange={(e) => {
-                  handleFilterChange('year', e.target.value);
-                  loadSummary();
-                  loadSKUAnalysis();
-                }}
-              >
-                {getYearOptions().map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="filter-label">Month</label>
-              <select 
-                className="form-select modern-input"
-                value={filters.month}
-                onChange={(e) => {
-                  handleFilterChange('month', e.target.value);
-                  loadSummary();
-                  loadSKUAnalysis();
-                }}
-              >
-                <option value="">All Months</option>
-                <option value="1">January</option><option value="2">February</option>
-                <option value="3">March</option><option value="4">April</option>
-                <option value="5">May</option><option value="6">June</option>
-                <option value="7">July</option><option value="8">August</option>
-                <option value="9">September</option><option value="10">October</option>
-                <option value="11">November</option><option value="12">December</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="filter-label">Period Type</label>
-              <select 
-                className="form-select modern-input"
-                value={filters.type}
-                onChange={(e) => {
-                  handleFilterChange('type', e.target.value);
-                  loadSummary();
-                }}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="filter-label">Salesperson</label>
-              <select 
-                className="form-select modern-input"
-                value={filters.salesperson}
-                onChange={(e) => {
-                  handleFilterChange('salesperson', e.target.value);
-                  loadSummary();
-                }}
-              >
-                <option value="">All Salespeople</option>
-                {getSalespeopleOptions().map(name => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Salesperson Analysis */}
         <div className="dashboard-card p-4 mb-4">
           <div className="d-flex justify-content-between align-items-center mb-3">
             <div>
-              <div className="section-title">👥 Salesperson Performance</div>
-              <div className="section-subtitle">Top performers and detailed metrics</div>
+              <div className="section-title">🎯 Sales Targets</div>
+              <div className="section-subtitle">Set daily / weekly / monthly targets per salesperson</div>
             </div>
-            <button className="btn btn-export" onClick={exportUserCSV}>
-              📊 Export CSV
-            </button>
-          </div>
-          <div className="row">
-            <div className="col-md-6">
-              {summaryData.users && summaryData.users.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={summaryData.users.slice(0, 10)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="visits" fill="#667eea" name="Visits" />
-                    <Bar dataKey="sold" fill="#43e97b" name="Sales" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty-state" style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p>No data available</p>
-                </div>
-              )}
-            </div>
-            <div className="col-md-6">
-              {summaryData.users && summaryData.users.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={summaryData.users.slice(0, 10)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="efficiency" stroke="#f093fb" strokeWidth={2} name="Efficiency %" />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty-state" style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p>No data available</p>
-                </div>
-              )}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-outline-secondary" onClick={fetchAllTargets}>Refresh</button>
+              <button className="btn btn-primary" onClick={handleSaveAll} disabled={bulkSaving}>
+                {bulkSaving ? 'Saving...' : 'Save All'}
+              </button>
             </div>
           </div>
-          <div className="table-responsive mt-3">
+
+          <div className="table-responsive">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Rank</th>
                   <th>Name</th>
-                  <th>Visits</th>
-                  <th>Sales</th>
-                  <th>Cartons</th>
-                  <th>Efficiency</th>
+                  <th>National ID</th>
+                  <th>Daily</th>
+                  <th>Weekly</th>
+                  <th>Monthly</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {summaryData.users
-                  .sort((a, b) => b.cartons - a.cartons)
-                  .map((user, index) => {
-                    const efficiency = parseInt(user.efficiency);
-                    const efficiencyClass = efficiency >= 70 ? 'high' : efficiency >= 40 ? 'medium' : 'low';
-                    
-                    return (
-                      <tr key={index}>
-                        <td className="fw-bold">{index + 1}</td>
-                        <td>{user.name || user.nationalID}</td>
-                        <td>{user.visits}</td>
-                        <td>{user.sold}</td>
-                        <td className="fw-bold text-primary">{user.cartons}</td>
-                        <td><span className={`efficiency-badge ${efficiencyClass}`}>{user.efficiency}%</span></td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Regional Analysis */}
-        <div className="dashboard-card p-4 mb-4">
-          <div className="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <div className="section-title">🌍 Regional Performance</div>
-              <div className="section-subtitle">Performance breakdown by region</div>
-            </div>
-            <button className="btn btn-export" onClick={exportRegionCSV}>
-              📊 Export CSV
-            </button>
-          </div>
-          <div className="row">
-            <div className="col-md-6">
-              {summaryData.regions && summaryData.regions.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={summaryData.regions}
-                      dataKey="cartons"
-                      nameKey="region"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      label
-                    >
-                      {summaryData.regions.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty-state" style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p>No data available</p>
-                </div>
-              )}
-            </div>
-            <div className="col-md-6">
-              {summaryData.regions && summaryData.regions.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={summaryData.regions}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="region" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="visits" fill="#764ba2" name="Visits" />
-                    <Bar dataKey="sold" fill="#4facfe" name="Sales" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty-state" style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p>No data available</p>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="table-responsive mt-3">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Region</th>
-                  <th>Visits</th>
-                  <th>Sales</th>
-                  <th>Cartons</th>
-                  <th>Efficiency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summaryData.regions
-                  .sort((a, b) => b.cartons - a.cartons)
-                  .map((region, index) => {
-                    const efficiency = parseInt(region.efficiency);
-                    const efficiencyClass = efficiency >= 70 ? 'high' : efficiency >= 40 ? 'medium' : 'low';
-                    
-                    return (
-                      <tr key={index}>
-                        <td className="fw-bold">{region.region}</td>
-                        <td>{region.visits}</td>
-                        <td>{region.sold}</td>
-                        <td className="fw-bold text-primary">{region.cartons}</td>
-                        <td><span className={`efficiency-badge ${efficiencyClass}`}>{region.efficiency}%</span></td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* SKU Analysis */}
-        <div className="dashboard-card p-4 mb-4">
-          <div className="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <div className="section-title">📦 SKU Performance Analysis</div>
-              <div className="section-subtitle">Product-level sales insights for selected period</div>
-            </div>
-            <button className="btn btn-export" onClick={exportSKUCSV}>
-              📊 Export CSV
-            </button>
-          </div>
-          <div className="row">
-            <div className="col-md-12">
-              {skuData && skuData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={skuData.slice(0, 15)} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="sku" type="category" width={150} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="totalCartons" fill="#667eea" name="Total Cartons Sold" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty-state" style={{ height: '350px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p>No SKU data available</p>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="table-responsive mt-3">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>SKU</th>
-                  <th>Total Cartons</th>
-                  <th>Total Visits</th>
-                  <th>Salespeople</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skuData.map((sku, index) => (
-                  <tr key={index}>
-                    <td className="fw-bold">{index + 1}</td>
-                    <td>{sku.sku}</td>
-                    <td className="fw-bold text-primary">{sku.totalCartons}</td>
-                    <td>{sku.totalVisits}</td>
-                    <td>{sku.salespeopleCount}</td>
+                {allTargets.map((u, idx) => (
+                  <tr key={idx}>
+                    <td className="fw-bold">{u.name || u.nationalID}</td>
+                    <td>{u.nationalID}</td>
+                    <td>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={getTargetValue(u.nationalID, 'dailyTarget')}
+                        onChange={(e) => handleTargetChange(u.nationalID, 'dailyTarget', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={getTargetValue(u.nationalID, 'weeklyTarget')}
+                        onChange={(e) => handleTargetChange(u.nationalID, 'weeklyTarget', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={getTargetValue(u.nationalID, 'monthlyTarget')}
+                        onChange={(e) => handleTargetChange(u.nationalID, 'monthlyTarget', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <button className="btn btn-success" onClick={() => handleSaveTarget(u)}>Save</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-
-        {/* Time Series Analysis */}
-        <div className="dashboard-card p-4">
-          <div className="section-title">📈 Time Series Trends</div>
-          <div className="section-subtitle">{filters.type.charAt(0).toUpperCase() + filters.type.slice(1)} performance over time</div>
-          <div className="row">
-            <div className="col-md-12">
-              {summaryData.timeseries && summaryData.timeseries[filters.type] && summaryData.timeseries[filters.type].length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={summaryData.timeseries[filters.type]}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey={filters.type === 'daily' ? 'date' : filters.type === 'weekly' ? 'week' : 'month'} />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="visits" stroke="#667eea" strokeWidth={2} name="Visits" />
-                    <Line type="monotone" dataKey="sold" stroke="#43e97b" strokeWidth={2} name="Sales" />
-                    <Line type="monotone" dataKey="cartons" stroke="#f093fb" strokeWidth={2} name="Cartons" />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="empty-state" style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p>No time series data available</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
     );
   };
+
+  // Analytics tab removed — retained overview, map and targets only
 
   // Render Tab 3: Map Analysis
   const renderMapTab = () => {
@@ -1799,7 +1951,7 @@ const AdminDashboard = () => {
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <div className="sidebar-logo-icon">📊</div>
-            <div className="sidebar-logo-text">Analytics</div>
+            <div className="sidebar-logo-text">Admin</div>
           </div>
           <button className="sidebar-toggle" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
             {sidebarCollapsed ? '→' : '←'}
@@ -1814,19 +1966,27 @@ const AdminDashboard = () => {
             <div className="nav-item-icon">📈</div>
             <div className="nav-item-text">Overview</div>
           </div>
-          <div 
-            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
-          >
-            <div className="nav-item-icon">📊</div>
-            <div className="nav-item-text">Analytics</div>
-          </div>
+          
           <div 
             className={`nav-item ${activeTab === 'map' ? 'active' : ''}`}
             onClick={() => setActiveTab('map')}
           >
             <div className="nav-item-icon">🗺️</div>
             <div className="nav-item-text">Map Analysis</div>
+          </div>
+          <div 
+            className={`nav-item ${activeTab === 'usersetup' ? 'active' : ''}`}
+            onClick={() => setActiveTab('usersetup')}
+          >
+            <div className="nav-item-icon">👥</div>
+            <div className="nav-item-text">User Setup</div>
+          </div>
+          <div 
+            className={`nav-item ${activeTab === 'targets' ? 'active' : ''}`}
+            onClick={() => setActiveTab('targets')}
+          >
+            <div className="nav-item-icon">🎯</div>
+            <div className="nav-item-text">Targets</div>
           </div>
         </div>
 
@@ -1850,19 +2010,20 @@ const AdminDashboard = () => {
         <div className="content-header">
           <h1 className="content-title">
             {activeTab === 'overview' && '📈 Overview'}
-            {activeTab === 'analytics' && '📊 Analytics'}
             {activeTab === 'map' && '🗺️ Map Analysis'}
+            {activeTab === 'targets' && '🎯 Targets'}
           </h1>
           <p className="content-subtitle">
             {activeTab === 'overview' && 'Quick insights and pending approvals'}
-            {activeTab === 'analytics' && 'Detailed performance metrics and trends'}
             {activeTab === 'map' && 'Geographic distribution of visits and uplifts'}
+            {activeTab === 'targets' && 'Per-user target management'}
           </p>
         </div>
 
         {activeTab === 'overview' && renderOverviewTab()}
-        {activeTab === 'analytics' && renderAnalyticsTab()}
         {activeTab === 'map' && renderMapTab()}
+        {activeTab === 'targets' && renderTargetsTab()}
+        {activeTab === 'usersetup' && renderUsersTab && renderUsersTab()}
       </div>
 
       {/* Rejection Modal */}

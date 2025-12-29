@@ -38,7 +38,7 @@ export default function UpliftPage() {
   const navigate = useNavigate();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
-  const [skuQuantities, setSkuQuantities] = useState({ Chicken: 0, Beef: 0, 'Supa Mojo': 0 });
+  const [skuQuantities, setSkuQuantities] = useState({ Chicken: 0, Beef: 0, 'Supa Mojo': 0, Supermi: 0 });
   const [shopName, setShopName] = useState('');
   const [region, setRegion] = useState('');
   const [regionOther, setRegionOther] = useState('');
@@ -62,6 +62,11 @@ export default function UpliftPage() {
       }
     }
     setPreviews(p);
+  };
+
+  const removePreview = (index) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviews(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleDrop = async (e) => {
@@ -220,7 +225,28 @@ export default function UpliftPage() {
 
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               {previews.map((p, i) => (
-                <img key={i} src={p} alt={`preview-${i}`} className="thumb" />
+                <div key={i} style={{ position: 'relative', display: 'inline-block' }}>
+                  <img key={i} src={p} alt={`preview-${i}`} className="thumb" style={{ display: 'block' }} />
+                  <button
+                    type="button"
+                    onClick={() => removePreview(i)}
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 6,
+                      background: 'rgba(0,0,0,0.6)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: 26,
+                      height: 26,
+                      cursor: 'pointer'
+                    }}
+                    aria-label={`Remove preview ${i}`}
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
             </div>
           </div>

@@ -29,6 +29,7 @@ const SalesApp = () => {
   
   // Form state
   const [loginForm, setLoginForm] = useState({ nationalID: "", password: "" });
+  const [rememberCreds, setRememberCreds] = useState(false);
   const [visitForm, setVisitForm] = useState({
     visitType: "",
     region: "",
@@ -39,7 +40,7 @@ const SalesApp = () => {
   });
   
   // SKU state
-  const availableSKUs = ["Chicken", "Beef", "Supa Mojo"];
+  const availableSKUs = ["Chicken", "Beef", "Supa Mojo", "Supermi"];
   const [skuQuantities, setSkuQuantities] = useState(
     availableSKUs.reduce((acc, sku) => ({ ...acc, [sku]: 0 }), {})
   );
@@ -77,6 +78,19 @@ const SalesApp = () => {
       setShowLogin(false);
       startCamera();
       loadDashboard(user.nationalID);
+    }
+    // Load remembered credentials if any
+    try {
+      const rem = localStorage.getItem('rememberCredentials');
+      if (rem) {
+        const obj = JSON.parse(rem);
+        if (obj && obj.nationalID) {
+          setLoginForm(prev => ({ ...prev, nationalID: obj.nationalID || '', password: obj.password || '' }));
+          setRememberCreds(true);
+        }
+      }
+    } catch (e) {
+      // ignore
     }
   }, [navigate]);
 
@@ -121,6 +135,17 @@ const SalesApp = () => {
       if (!data.success) {
         alert("Invalid credentials");
         return;
+      }
+
+      // Remember credentials if selected
+      try {
+        if (rememberCreds) {
+          localStorage.setItem('rememberCredentials', JSON.stringify({ nationalID, password }));
+        } else {
+          localStorage.removeItem('rememberCredentials');
+        }
+      } catch (e) {
+        console.warn('Remember credentials failed', e);
       }
 
       setCurrentUser(data);
@@ -572,6 +597,11 @@ const SalesApp = () => {
             </button>
           </div>
 
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" id="rememberCreds" checked={rememberCreds} onChange={(e) => setRememberCreds(e.target.checked)} />
+            <label htmlFor="rememberCreds" style={{ margin: 0 }}>Remember National ID & Password</label>
+          </div>
+
           <button
             className="btn btn-danger w-100 mt-3"
             onClick={handleLogin}
@@ -848,6 +878,33 @@ const SalesApp = () => {
                           <div style={{ color: '#dc3545', fontWeight: '500', marginTop: '4px' }}>
                             Please uplift again
                           </div>
+                        </div>
+                      )}
+                      {uplift.receiptPhoto && uplift.status !== 'Approved' && (
+                        <div style={{ marginTop: 8 }}>
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={async () => {
+                              if (!currentUser) return alert('Not authenticated');
+                              if (!confirm('Delete receipt? This cannot be undone.')) return;
+                              try {
+                                const res = await apiService.deleteUpliftReceipt(uplift.rowIndex, currentUser.name || currentUser.nationalID);
+                                if (res && res.success) {
+                                  alert('Receipt deleted');
+                                  // refresh uplift status
+                                  const uplifts = await apiService.getUserUpliftStatus(currentUser.nationalID);
+                                  setUpliftStatus(uplifts);
+                                } else {
+                                  alert('Delete failed: ' + (res && res.message ? res.message : 'Unknown'));
+                                }
+                              } catch (err) {
+                                console.error(err);
+                                alert('Delete failed');
+                              }
+                            }}
+                          >
+                            Delete Receipt
+                          </button>
                         </div>
                       )}
                     </div>

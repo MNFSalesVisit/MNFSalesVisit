@@ -148,6 +148,76 @@ function getAllUsersStockBalance() {
   return results;
 }
 
+// ========= GET ALL USERS =========
+function getAllUsers() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(USERS_SHEET);
+  if (!sh) return [];
+  const data = sh.getDataRange().getValues();
+  const users = [];
+  for (let i = 1; i < data.length; i++) {
+    users.push({
+      nationalID: String(data[i][0] || ""),
+      password: String(data[i][1] || ""),
+      name: String(data[i][2] || ""),
+      role: String(data[i][3] || ""),
+      vehicle: String(data[i][4] || ""),
+      region: String(data[i][5] || "")
+    });
+  }
+  return users;
+}
+
+// ========= SET / CREATE USER =========
+function setUser(nationalID, password, name, role, vehicle, region) {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(USERS_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(USERS_SHEET);
+    sh.appendRow(["National ID", "Password", "Name", "Role", "Vehicle", "Region"]);
+  }
+
+  const data = sh.getDataRange().getValues();
+  let rowIndex = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(nationalID)) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex > 0) {
+    sh.getRange(rowIndex, 1).setValue(String(nationalID));
+    // Only overwrite password if a non-empty password was provided
+    if (password !== undefined && password !== null && String(password) !== "") {
+      sh.getRange(rowIndex, 2).setValue(String(password));
+    }
+    sh.getRange(rowIndex, 3).setValue(String(name));
+    sh.getRange(rowIndex, 4).setValue(String(role));
+    sh.getRange(rowIndex, 5).setValue(String(vehicle));
+    sh.getRange(rowIndex, 6).setValue(String(region));
+  } else {
+    sh.appendRow([String(nationalID), String(password), String(name), String(role), String(vehicle), String(region)]);
+  }
+
+  return { success: true };
+}
+
+// ========= DELETE USER =========
+function deleteUser(nationalID) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(USERS_SHEET);
+  if (!sh) return { success: false, message: "Users sheet not found" };
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(nationalID)) {
+      sh.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, message: "User not found" };
+}
+
 // ========= AUTO-CREATE MONTHLY VISIT SHEET =========
 function ensureMonthlyVisitSheet(date) {
   const ss = SpreadsheetApp.getActive();
@@ -552,9 +622,11 @@ function getUserUpliftStatus(nationalID) {
       // Filter by current month
       if (d.getMonth() === month && d.getFullYear() === year) {
         rows.push({
+          rowIndex: i + 1,
           timestamp: r[0],
           skus: String(r[5] || ""),
           totalCartons: Number(r[6] || 0),
+          receiptPhoto: r[7] || "",
           status: String(r[10] || "Pending"),
           rejectionReason: String(r[11] || "")
         });
@@ -664,6 +736,29 @@ function rejectUplift(rowIndex, reason, rejectedBy) {
   sh.getRange(row, 14).setValue(new Date()); // Rejection Date
   
   return { success: true };
+}
+
+// ========= DELETE UPLIFT RECEIPT =========
+function deleteUpliftReceipt(rowIndex, requestedBy) {
+  const sh = ensureUpliftSheet();
+  const row = Number(rowIndex);
+
+  if (row < 2) {
+    return { success: false, message: "Invalid row index" };
+  }
+
+  try {
+    // Clear the Receipt Photo column (column 8)
+    sh.getRange(row, 8).clearContent();
+
+    // Log who deleted the receipt and when in Rejection Reason (col 12)
+    const note = `Receipt deleted by ${requestedBy || "unknown"} on ${new Date()}`;
+    sh.getRange(row, 12).setValue(note);
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: "Delete error: " + err.message };
+  }
 }
 
 // ========= ADMIN SUMMARY (aggregations) =========
@@ -907,21 +1002,67 @@ function getUserTargets(nationalID) {
 
 // ========= GET ALL TARGETS (for admin) =========
 function getAllTargets() {
-  const sh = ensureTargetsSheet();
-  const data = sh.getDataRange().getValues();
-  
+  // Build list from Users sheet so admins see all salespeople
+  const ss = SpreadsheetApp.getActive();
+  const usersSheet = ss.getSheetByName(USERS_SHEET);
+
+  if (!usersSheet) {
+    return [];
+  }
+
+  const usersData = usersSheet.getDataRange().getValues();
   const targets = [];
-  for (let i = 1; i < data.length; i++) {
+
+  for (let i = 1; i < usersData.length; i++) {
+    const nationalID = String(usersData[i][0] || "").trim();
+    if (!nationalID) continue;
+
+    const role = String(usersData[i][3] || "").trim().toLowerCase();
+    if (role === "admin") continue; // skip admins
+
+    const name = String(usersData[i][2] || "").trim();
+
+    // getUserTargets will return zeros if no row exists in Targets sheet
+    const t = getUserTargets(nationalID);
+
     targets.push({
-      nationalID: String(data[i][0]),
-      name: String(data[i][1]),
-      dailyTarget: Number(data[i][2]) || 0,
-      weeklyTarget: Number(data[i][3]) || 0,
-      monthlyTarget: Number(data[i][4]) || 0
+      nationalID: nationalID,
+      name: name || t.name || "",
+      dailyTarget: Number(t.dailyTarget) || 0,
+      weeklyTarget: Number(t.weeklyTarget) || 0,
+      monthlyTarget: Number(t.monthlyTarget) || 0
     });
   }
-  
+
   return targets;
+}
+
+// ========= SET TARGETS FOR ALL SALESPERSON =========
+function setTargetsForAll(dailyTarget, weeklyTarget, monthlyTarget) {
+  const ss = SpreadsheetApp.getActive();
+  const usersSheet = ss.getSheetByName(USERS_SHEET);
+
+  if (!usersSheet) {
+    return { success: false, message: "Users sheet not found" };
+  }
+
+  const data = usersSheet.getDataRange().getValues();
+  let updated = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const nationalID = String(data[i][0] || "").trim();
+    const name = String(data[i][2] || "").trim();
+    const role = String(data[i][3] || "").trim().toLowerCase();
+
+    // Skip admins and empty IDs
+    if (!nationalID || role === "admin") continue;
+
+    // Reuse existing setUserTargets which handles insert/update
+    setUserTargets(nationalID, name, Number(dailyTarget) || 0, Number(weeklyTarget) || 0, Number(monthlyTarget) || 0);
+    updated++;
+  }
+
+  return { success: true, updated: updated };
 }
 
 // ========= GET USER PROGRESS (cartons sold vs targets) =========
@@ -1030,12 +1171,22 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify(getUserTargets(req.nationalID)));
     case "getAllTargets":
       return ContentService.createTextOutput(JSON.stringify(getAllTargets()));
+    case "getAllUsers":
+      return ContentService.createTextOutput(JSON.stringify(getAllUsers()));
+    case "setUser":
+      return ContentService.createTextOutput(JSON.stringify(setUser(req.nationalID, req.password, req.name, req.role, req.vehicle, req.region)));
+    case "deleteUser":
+      return ContentService.createTextOutput(JSON.stringify(deleteUser(req.nationalID)));
     case "getUserProgress":
       return ContentService.createTextOutput(JSON.stringify(getUserProgress(req.nationalID)));
     case "getStockBalanceBySKU":
       return ContentService.createTextOutput(JSON.stringify(getStockBalanceBySKU(req.nationalID)));
     case "getAllUsersStockBalance":
       return ContentService.createTextOutput(JSON.stringify(getAllUsersStockBalance()));
+    case "deleteUpliftReceipt":
+      return ContentService.createTextOutput(JSON.stringify(deleteUpliftReceipt(req.rowIndex, req.requestedBy)));
+    case "setTargetsForAll":
+      return ContentService.createTextOutput(JSON.stringify(setTargetsForAll(req.dailyTarget, req.weeklyTarget, req.monthlyTarget)));
     default:
       return ContentService.createTextOutput(JSON.stringify({ error: "Unknown action" }));
   }
