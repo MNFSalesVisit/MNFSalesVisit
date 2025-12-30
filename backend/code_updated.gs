@@ -465,6 +465,22 @@ function saveUpliftVisit(record) {
     totalCartons = record.skus.reduce((sum, s) => sum + Number(s.qty), 0);
   }
 
+  // Ensure receiptPhoto is stored as a JSON string when it's an array/object
+  var receiptCell = "";
+  try {
+    if (record.receiptPhoto === undefined || record.receiptPhoto === null) {
+      receiptCell = "";
+    } else if (Array.isArray(record.receiptPhoto)) {
+      receiptCell = JSON.stringify(record.receiptPhoto);
+    } else if (typeof record.receiptPhoto === 'object') {
+      receiptCell = JSON.stringify(record.receiptPhoto);
+    } else {
+      receiptCell = String(record.receiptPhoto);
+    }
+  } catch (e) {
+    receiptCell = String(record.receiptPhoto || "");
+  }
+
   const row = [
     new Date(),             // 1 Timestamp
     record.nationalID,      // 2
@@ -473,7 +489,7 @@ function saveUpliftVisit(record) {
     record.shopName,        // 5
     skuFormatted,           // 6 SKUs
     totalCartons,           // 7 TOTAL CARTONS
-    record.receiptPhoto,    // 8 Receipt Photo (rear camera)
+    receiptCell,            // 8 Receipt Photo (stored as string or JSON)
     record.longitude,       // 9
     record.latitude,        //10
     "Pending",              //11 Status
@@ -621,12 +637,16 @@ function getUserUpliftStatus(nationalID) {
       
       // Filter by current month
       if (d.getMonth() === month && d.getFullYear() === year) {
+        var receipt = r[7] || "";
+        if (typeof receipt === 'string' && receipt.indexOf('[') === 0) {
+          try { receipt = JSON.parse(receipt); } catch (e) { /* keep as string */ }
+        }
         rows.push({
           rowIndex: i + 1,
           timestamp: r[0],
           skus: String(r[5] || ""),
           totalCartons: Number(r[6] || 0),
-          receiptPhoto: r[7] || "",
+          receiptPhoto: receipt,
           status: String(r[10] || "Pending"),
           rejectionReason: String(r[11] || "")
         });
@@ -654,6 +674,10 @@ function getPendingUplifts() {
     const status = String(r[10] || "Pending");
     
     if (status === "Pending") {
+      var receipt = r[7] || "";
+      if (typeof receipt === 'string' && receipt.indexOf('[') === 0) {
+        try { receipt = JSON.parse(receipt); } catch (e) { /* keep as string */ }
+      }
       rows.push({
         rowIndex: i + 1,
         timestamp: r[0],
@@ -663,7 +687,7 @@ function getPendingUplifts() {
         shopName: String(r[4] || ""),
         skus: String(r[5] || ""),
         totalCartons: Number(r[6] || 0),
-        receiptPhoto: r[7] || "",
+        receiptPhoto: receipt,
         longitude: r[8] || "",
         latitude: r[9] || ""
       });

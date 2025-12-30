@@ -86,6 +86,53 @@ const AdminDashboard = () => {
     }
   };
 
+  // Fetch pending uplifts for admin verification
+  const fetchPendingUplifts = async () => {
+    try {
+      const uplifts = await apiService.getPendingUplifts();
+      setPendingUplifts(Array.isArray(uplifts) ? uplifts : []);
+    } catch (err) {
+      console.error('Failed to fetch pending uplifts:', err);
+      setPendingUplifts([]);
+    }
+  };
+
+  // Approve uplift
+  const handleApproveUplift = async (uplift) => {
+    if (!confirm(`Approve uplift from ${uplift.name} for ${uplift.totalCartons} cartons?`)) return;
+    try {
+      await apiService.approveUplift(uplift.rowIndex, currentUser?.name || currentUser?.nationalID || 'admin');
+      alert('Uplift approved successfully!');
+      fetchPendingUplifts();
+    } catch (err) {
+      console.error('Failed to approve uplift:', err);
+      alert('Failed to approve uplift. Please try again.');
+    }
+  };
+
+  // Show reject modal for a given uplift
+  const showRejectModalFor = (uplift) => {
+    setSelectedUplift(uplift);
+    setRejectionReason("");
+    setShowRejectModal(true);
+  };
+
+  // Reject uplift with reason
+  const handleRejectUplift = async () => {
+    if (!rejectionReason || !rejectionReason.trim()) { alert('Please provide a rejection reason.'); return; }
+    try {
+      await apiService.rejectUplift(selectedUplift.rowIndex, rejectionReason, currentUser?.name || currentUser?.nationalID || 'admin');
+      alert('Uplift rejected successfully!');
+      setShowRejectModal(false);
+      setSelectedUplift(null);
+      setRejectionReason("");
+      fetchPendingUplifts();
+    } catch (err) {
+      console.error('Failed to reject uplift:', err);
+      alert('Failed to reject uplift. Please try again.');
+    }
+  };
+
   // Render User Setup tab
   const renderUsersTab = () => {
     return (
@@ -119,14 +166,7 @@ const AdminDashboard = () => {
                 <option value="Tuk-tuk">Tuk-tuk</option>
               </select>
             </div>
-            <div className="col-md-1">
-              <label className="visually-hidden">Region</label>
-              <select className="form-select" value={userForm.region} onChange={(e) => handleUserFormChange('region', e.target.value)}>
-                <option value="">Select region</option>
-                <option value="Mombasa">Mombasa</option>
-                <option value="Nairobi">Nairobi</option>
-              </select>
-            </div>
+            
           </div>
           <div className="mt-3">
             <button className="btn btn-primary" onClick={handleCreateUser}>Create / Save</button>
@@ -134,7 +174,7 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        <div className="dashboard-card p-4">
+          <div className="dashboard-card p-4">
           <div className="section-title">Existing Users</div>
           <div className="table-responsive mt-3">
             <table className="data-table">
@@ -144,7 +184,6 @@ const AdminDashboard = () => {
                   <th>Name</th>
                   <th>Role</th>
                   <th>Vehicle</th>
-                  <th>Region</th>
                   <th></th>
                 </tr>
               </thead>
@@ -155,7 +194,6 @@ const AdminDashboard = () => {
                     <td>{u.name}</td>
                     <td>{u.role}</td>
                     <td>{u.vehicle}</td>
-                    <td>{u.region}</td>
                     <td>
                       <button className="btn btn-sm btn-success me-2" onClick={() => {
                         // populate form for edit
@@ -299,10 +337,6 @@ const AdminDashboard = () => {
 
   // Handle filter changes
   const handleFilterChange = (field, value) => {
-    if (field === 'region') {
-      setFilters(prev => ({ ...prev, region: value, subregion: '' }));
-      return;
-    }
     setFilters(prev => ({ ...prev, [field]: value }));
   };
 
@@ -322,9 +356,10 @@ const AdminDashboard = () => {
 
   // Render Tab 1: Overview
   const renderOverviewTab = () => {
-    // Build SKU options from visits/uplifts
+    // Build SKU options from visits/uplifts (include known SKUs like Supermi)
     const getSKUOptions = () => {
-      const set = new Set();
+      const KNOWN_SKUS = ['Supermi'];
+      const set = new Set(KNOWN_SKUS);
       const collectFrom = (arr) => arr.forEach(v => {
         const s = String(v.skus || '');
         if (!s) return;
@@ -338,14 +373,21 @@ const AdminDashboard = () => {
       return Array.from(set).sort();
     };
 
-    // Fixed region list and subregions mapping
-    const REGION_OPTIONS = ['Mombasa', 'Nairobi'];
-    const SUBREGIONS = {
-      Mombasa: ['', 'Mvita'], // '' means All Subregions
-      Nairobi: ['']
-    };
+    // Known subregions to always show in the filter
+    const KNOWN_SUBREGIONS = ['Mvita', 'Kilifi', 'Likoni', 'Nyali', 'Kisauni', 'Changamwe', 'Jomvu'];
 
-    const getRegionOptions = () => REGION_OPTIONS;
+    const getSubregionOptions = () => {
+      const s = new Set();
+      s.add(''); // All subregions
+      // Add known static subregions first
+      KNOWN_SUBREGIONS.forEach(x => s.add(x));
+      // Merge any subregions present in the data
+      (allVisits || []).forEach(v => {
+        const sub = String(v.subregion || '').trim();
+        if (sub) s.add(sub);
+      });
+      return Array.from(s).sort((a,b) => (a === '' ? -1 : a.localeCompare(b)));
+    };
 
     const getFilteredOverviewVisits = () => {
       return (allVisits || []).filter(v => {
@@ -357,10 +399,6 @@ const AdminDashboard = () => {
           const nameMatch = v.name && v.name.toLowerCase().includes(String(filters.salesperson).toLowerCase());
           const idMatch = v.nationalID && v.nationalID.toLowerCase().includes(String(filters.salesperson).toLowerCase());
           if (!nameMatch && !idMatch) return false;
-        }
-        if (filters.region) {
-          const reg = String(v.region || '').toLowerCase();
-          if (reg !== String(filters.region).toLowerCase()) return false;
         }
         if (filters.subregion) {
           const sub = String(filters.subregion).toLowerCase();
@@ -413,7 +451,6 @@ const AdminDashboard = () => {
     };
 
     const skuOptions = getSKUOptions();
-    const regionOptions = getRegionOptions();
 
     const filteredVisitsForDisplay = getFilteredOverviewVisits();
 
@@ -448,19 +485,11 @@ const AdminDashboard = () => {
                 <option value="11">November</option><option value="12">December</option>
               </select>
             </div>
-              <div className="col-md-2">
-                <label className="filter-label">Region</label>
-                <select className="form-select modern-input" value={filters.region} onChange={(e) => handleFilterChange('region', e.target.value)}>
-                  <option value="">All Regions</option>
-                  {regionOptions.map(r => (<option key={r} value={r}>{r}</option>))}
-                </select>
-              </div>
-              <div className="col-md-2">
+              <div className="col-md-3">
                 <label className="filter-label">Subregion</label>
-                <select className="form-select modern-input" value={filters.subregion} onChange={(e) => handleFilterChange('subregion', e.target.value)} disabled={!filters.region}>
-                  <option value="">All Subregions</option>
-                  {(SUBREGIONS[filters.region] || []).filter(s => s).map(s => (
-                    <option key={s} value={s}>{s}</option>
+                <select className="form-select modern-input" value={filters.subregion} onChange={(e) => handleFilterChange('subregion', e.target.value)}>
+                  {getSubregionOptions().map(s => (
+                    <option key={s} value={s}>{s === '' ? 'All Subregions' : s}</option>
                   ))}
                 </select>
               </div>
@@ -501,6 +530,49 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* Visits List */}
+        <div className="dashboard-card p-4 mb-4">
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <div className="section-title">📋 Visits List</div>
+              <div className="section-subtitle">Showing visits matching current filters (subregion, month, year, salesperson)</div>
+            </div>
+            <div>
+              <button className="btn btn-secondary-custom" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Back to top</button>
+            </div>
+          </div>
+
+          <div className="table-responsive" style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <table className="data-table" style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Name</th>
+                  <th>Shop</th>
+                  <th>Subregion</th>
+                  <th>Sold</th>
+                  <th>Cartons</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredVisitsForDisplay.slice(0, 500).map((v, i) => (
+                  <tr key={i}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{v.timestamp ? new Date(v.timestamp).toLocaleString() : ''}</td>
+                    <td style={{ fontWeight: 600 }}>{v.name || v.nationalID}</td>
+                    <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.shopName || ''}</td>
+                    <td>{v.subregion || ''}</td>
+                    <td>{v.sold}</td>
+                    <td>{v.totalCartons || 0}</td>
+                  </tr>
+                ))}
+                {filteredVisitsForDisplay.length === 0 && (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20 }}>No visits for selected filters</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Uplift Verification Section */}
         <div className="dashboard-card p-4 mb-4">
           <div className="d-flex justify-content-between align-items-center mb-3">
@@ -526,16 +598,92 @@ const AdminDashboard = () => {
                 <div key={index} className="uplift-card">
                   <div className="row align-items-center">
                     <div className="col-md-3">
-                      {uplift.receiptPhoto ? (
-                        <img 
-                          src={uplift.receiptPhoto} 
-                          alt="Receipt" 
-                          className="receipt-image"
-                          onClick={() => window.open(uplift.receiptPhoto, '_blank')}
-                        />
-                      ) : (
-                        <div className="no-photo">No photo</div>
-                      )}
+                      {(() => {
+                        // Normalize receiptPhoto to an array of URLs
+                        let photos = [];
+                        try {
+                          if (!uplift.receiptPhoto) photos = [];
+                          else if (Array.isArray(uplift.receiptPhoto)) photos = uplift.receiptPhoto;
+                          else if (typeof uplift.receiptPhoto === 'string') {
+                            const s = uplift.receiptPhoto.trim();
+                            // Try JSON parse (in case backend stored a JSON array)
+                            if (s.startsWith('[')) {
+                              photos = JSON.parse(s);
+                            } else if (s.indexOf('data:image') !== -1) {
+                              // Might be one or more data URLs concatenated with commas
+                              // Split on comma followed by data:image to preserve header
+                              const parts = s.split(/(?=data:image)/g).map(p => p.trim()).filter(Boolean);
+                              photos = parts;
+                            } else {
+                              photos = [s];
+                            }
+                          }
+                        } catch (e) {
+                          console.warn('Failed to parse receiptPhoto', e, uplift.receiptPhoto);
+                          photos = typeof uplift.receiptPhoto === 'string' ? [uplift.receiptPhoto] : [];
+                        }
+
+                        if (!photos || photos.length === 0) return (<div className="no-photo">No photo</div>);
+
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <img
+                              src={photos[0]}
+                              alt="Receipt"
+                              className="receipt-image"
+                              onClick={() => window.open(photos[0], '_blank')}
+                              style={{ cursor: 'pointer' }}
+                            />
+                            {photos.length > 1 && (
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                {photos.map((p, idx) => (
+                                  <button key={idx} className="btn btn-sm btn-secondary-custom" onClick={() => window.open(p, '_blank')}>View {idx+1}</button>
+                                ))}
+                              </div>
+                            )}
+                            <div>
+                              <button className="btn btn-sm btn-outline-secondary" onClick={async () => {
+                                for (let i = 0; i < photos.length; i++) {
+                                  const p = photos[i];
+                                  try {
+                                    if (typeof p === 'string' && p.startsWith('data:')) {
+                                      // Convert data URL to blob then download
+                                      const resp = await fetch(p);
+                                      const blob = await resp.blob();
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      // Determine extension from MIME
+                                      const mime = blob.type || 'image/jpeg';
+                                      const ext = mime.split('/')[1] ? mime.split('/')[1].split(';')[0] : 'jpg';
+                                      a.download = `receipt_${uplift.nationalID || 'unknown'}_${i+1}.${ext}`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      a.remove();
+                                      URL.revokeObjectURL(url);
+                                    } else if (typeof p === 'string' && p.startsWith('http')) {
+                                      // Open remote URL in new tab (user can download from there)
+                                      window.open(p, '_blank');
+                                    } else {
+                                      // Fallback: attempt to open
+                                      const a = document.createElement('a');
+                                      a.href = String(p);
+                                      a.download = `receipt_${uplift.nationalID || 'unknown'}_${i+1}.jpg`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      a.remove();
+                                    }
+                                  } catch (err) {
+                                    console.error('Download failed', err, p);
+                                    // fallback: open in new tab
+                                    try { window.open(p, '_blank'); } catch (e) { /* ignore */ }
+                                  }
+                                }
+                              }}>Download</button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="col-md-6">
                       <h6 className="uplift-name">👤 {uplift.name}</h6>

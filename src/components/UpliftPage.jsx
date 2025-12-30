@@ -98,7 +98,7 @@ export default function UpliftPage() {
     const skusPayload = Object.keys(skuQuantities).map(k => ({ name: k, qty: Number(skuQuantities[k] || 0) })).filter(x => x.qty > 0);
     if (skusPayload.length === 0) { alert('Select SKU quantities'); return; }
     if (previews.length === 0) { alert('Upload at least one receipt image'); return; }
-    const resolvedRegion = region === 'Other' ? (regionOther || '').trim() : region;
+    const resolvedRegion = (region || '').trim();
     if (!shopName || shopName.trim().length < 2) { alert('Enter shop name'); return; }
     if (!resolvedRegion || resolvedRegion.length < 2) { alert('Enter region'); return; }
 
@@ -112,7 +112,7 @@ export default function UpliftPage() {
     const record = {
       nationalID: user.nationalID,
       name: user.name,
-      region: region === 'Other' ? regionOther : region,
+      region: resolvedRegion,
       shopName: shopName,
       skus: skusPayload,
       receiptPhoto: previews,
@@ -198,11 +198,7 @@ export default function UpliftPage() {
               <option value="Likoni">Likoni</option>
               <option value="Changamwe">Changamwe</option>
               <option value="Jomvu">Jomvu</option>
-              <option value="Other">Other</option>
             </select>
-            {region === 'Other' && (
-              <input className="modern-input" style={{ marginTop: 8 }} placeholder="Specify region" value={regionOther} onChange={(e) => setRegionOther(e.target.value)} />
-            )}
           </div>
 
           <div style={{ marginBottom: 12 }}>
