@@ -52,6 +52,10 @@ const AdminDashboard = () => {
     subregion: ""
   });
 
+  // Reports-specific state
+  const [reportSKUSelection, setReportSKUSelection] = useState([]);
+  const [reportResults, setReportResults] = useState([]);
+
   // Targets state (per-user)
   const [allTargets, setAllTargets] = useState([]);
   const [targetEdits, setTargetEdits] = useState({});
@@ -72,6 +76,11 @@ const AdminDashboard = () => {
     }
     if (activeTab === 'usersetup') {
       fetchAllUsers();
+    }
+    if (activeTab === 'reports') {
+      // ensure we have latest users and targets for reports
+      fetchAllUsers();
+      fetchAllTargets();
     }
   }, [activeTab]);
 
@@ -335,6 +344,23 @@ const AdminDashboard = () => {
     return years;
   };
 
+  // Generate SKU options from visits and uplifts (shared helper)
+  const getSKUOptions = () => {
+    const KNOWN_SKUS = ['Supermi'];
+    const set = new Set(KNOWN_SKUS);
+    const collectFrom = (arr) => arr.forEach(v => {
+      const s = String(v.skus || '');
+      if (!s) return;
+      s.split('|').map(x => x.trim()).forEach(pair => {
+        const parts = pair.split(':');
+        if (parts[0]) set.add(parts[0].trim());
+      });
+    });
+    collectFrom(allVisits || []);
+    collectFrom(allUplifts || []);
+    return Array.from(set).sort();
+  };
+
   // Handle filter changes
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -356,22 +382,7 @@ const AdminDashboard = () => {
 
   // Render Tab 1: Overview
   const renderOverviewTab = () => {
-    // Build SKU options from visits/uplifts (include known SKUs like Supermi)
-    const getSKUOptions = () => {
-      const KNOWN_SKUS = ['Supermi'];
-      const set = new Set(KNOWN_SKUS);
-      const collectFrom = (arr) => arr.forEach(v => {
-        const s = String(v.skus || '');
-        if (!s) return;
-        s.split('|').map(x => x.trim()).forEach(pair => {
-          const parts = pair.split(':');
-          if (parts[0]) set.add(parts[0].trim());
-        });
-      });
-      collectFrom(allVisits || []);
-      collectFrom(allUplifts || []);
-      return Array.from(set).sort();
-    };
+    // SKU options are provided by a shared helper `getSKUOptions()`
 
     // Known subregions to always show in the filter
     const KNOWN_SUBREGIONS = ['Mvita', 'Kilifi', 'Kwale', 'Likoni', 'Nyali', 'Kisauni', 'Changamwe', 'Jomvu'];
@@ -818,9 +829,10 @@ const AdminDashboard = () => {
     const dailyTarget = Number(getTargetValue(user.nationalID, 'dailyTarget')) || 0;
     const weeklyTarget = Number(getTargetValue(user.nationalID, 'weeklyTarget')) || 0;
     const monthlyTarget = Number(getTargetValue(user.nationalID, 'monthlyTarget')) || 0;
+    const supermiMonthlyTarget = Number(getTargetValue(user.nationalID, 'supermiMonthlyTarget')) || 0;
 
     try {
-      const res = await apiService.setUserTargets(user.nationalID, user.name, dailyTarget, weeklyTarget, monthlyTarget);
+      const res = await apiService.setUserTargets(user.nationalID, user.name, dailyTarget, weeklyTarget, monthlyTarget, supermiMonthlyTarget);
       if (res && res.success) {
         alert(`Targets saved for ${user.name || user.nationalID}`);
         fetchAllTargets();
@@ -844,7 +856,8 @@ const AdminDashboard = () => {
       const daily = Number(getTargetValue(u.nationalID, 'dailyTarget')) || 0;
       const weekly = Number(getTargetValue(u.nationalID, 'weeklyTarget')) || 0;
       const monthly = Number(getTargetValue(u.nationalID, 'monthlyTarget')) || 0;
-      return apiService.setUserTargets(u.nationalID, u.name || u.nationalID, daily, weekly, monthly);
+      const supermi = Number(getTargetValue(u.nationalID, 'supermiMonthlyTarget')) || 0;
+      return apiService.setUserTargets(u.nationalID, u.name || u.nationalID, daily, weekly, monthly, supermi);
     });
 
     const results = await Promise.allSettled(promises);
@@ -886,6 +899,7 @@ const AdminDashboard = () => {
                   <th>Daily</th>
                   <th>Weekly</th>
                   <th>Monthly</th>
+                  <th>Supermi (Monthly)</th>
                   <th></th>
                 </tr>
               </thead>
@@ -919,8 +933,196 @@ const AdminDashboard = () => {
                       />
                     </td>
                     <td>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={getTargetValue(u.nationalID, 'supermiMonthlyTarget')}
+                        onChange={(e) => handleTargetChange(u.nationalID, 'supermiMonthlyTarget', e.target.value)}
+                      />
+                    </td>
+                    <td>
                       <button className="btn btn-success" onClick={() => handleSaveTarget(u)}>Save</button>
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Tab: Reports
+  const computeReport = () => {
+    const year = Number(filters.year) || new Date().getFullYear();
+    const month = filters.month ? Number(filters.month) : null; // 1-12 or null for all
+
+    // Build map of targets by nationalID
+    const targetsMap = {};
+    (allTargets || []).forEach(t => { targetsMap[t.nationalID] = t; });
+
+    // Build map of vehicles by nationalID
+    const vehicleMap = {};
+    (allUsers || []).forEach(u => { vehicleMap[u.nationalID] = u.vehicle || ''; });
+
+    // Helper to parse SKU string
+    const parseSKUString = (s) => {
+      const out = {};
+      if (!s) return out;
+      s.split('|').map(x => x.trim()).forEach(pair => {
+        const parts = pair.split(':');
+        if (parts.length === 2) {
+          const name = parts[0].trim();
+          const qty = Number(parts[1].trim()) || 0;
+          out[name] = (out[name] || 0) + qty;
+        }
+      });
+      return out;
+    };
+
+    const isSupermiFilter = String(filters.sku) === 'Supermi';
+
+    // Start from allTargets (salespeople list)
+    const rows = (allTargets || []).filter(u => u.nationalID && (filters.salesperson ? (u.name === filters.salesperson || u.nationalID === filters.salesperson) : true)).map(u => {
+      // sum achievement for this user
+      let achievement = 0;
+
+      (allVisits || []).forEach(v => {
+        if (String(v.nationalID || '') !== String(u.nationalID)) return;
+        if (!v.timestamp) return;
+        const d = new Date(v.timestamp);
+        if (d.getFullYear() !== year) return;
+        if (month && (d.getMonth() + 1) !== month) return;
+        if (String(v.sold) !== 'Yes') return;
+
+        // parse SKUs and count according to Supermi vs others filter
+        const parsed = parseSKUString(String(v.skus || ''));
+        if (isSupermiFilter) {
+          achievement += Number(parsed['Supermi'] || 0);
+        } else {
+          // sum all SKUs except Supermi; if no parsed SKUs, fall back to totalCartons
+          if (Object.keys(parsed).length === 0) {
+            achievement += Number(v.totalCartons || 0);
+          } else {
+            Object.keys(parsed).forEach(k => { if (k !== 'Supermi') achievement += Number(parsed[k] || 0); });
+          }
+        }
+      });
+
+      const target = isSupermiFilter ? Number((targetsMap[u.nationalID] && targetsMap[u.nationalID].supermiMonthlyTarget) || 0) : Number((targetsMap[u.nationalID] && targetsMap[u.nationalID].monthlyTarget) || 0);
+      const pct = target > 0 ? Math.round((achievement / target) * 100) : 0;
+      const remaining = Math.max(0, target - achievement);
+      const remainingPct = target > 0 ? Math.round((remaining / target) * 100) : 0;
+
+      return {
+        nationalID: u.nationalID,
+        name: u.name || u.nationalID,
+        vehicle: vehicleMap[u.nationalID] || '',
+        monthlyTarget: target,
+        achievement,
+        pct,
+        remaining,
+        remainingPct
+      };
+    });
+
+    setReportResults(rows);
+    return rows;
+  };
+
+  const exportReportCSV = () => {
+    const rows = reportResults.length ? reportResults : computeReport();
+    const headers = ['Sales person','Vehicle','Monthly Target','Monthly Achievement','% Achievement','Remaining','% Remaining'];
+    const lines = [headers.join(',')];
+    rows.forEach(r => {
+      lines.push([r.name, r.vehicle, r.monthlyTarget, r.achievement, r.pct + '%', r.remaining, r.remainingPct + '%'].map(c => '"' + String(c).replace(/"/g,'""') + '"').join(','));
+    });
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const filterLabel = filters.sku ? String(filters.sku).replace(/\s+/g,'_') : 'others';
+    a.download = `report-${filters.year}-${filters.month || 'all'}-${filterLabel}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const renderReportsTab = () => {
+    console.log('Rendering Reports tab');
+    const skuOptions = getSKUOptions();
+    const salespersonOptions = getSalespeopleOptions();
+    const months = [{value:'',label:'All'}, {value:1,label:'Jan'},{value:2,label:'Feb'},{value:3,label:'Mar'},{value:4,label:'Apr'},{value:5,label:'May'},{value:6,label:'Jun'},{value:7,label:'Jul'},{value:8,label:'Aug'},{value:9,label:'Sep'},{value:10,label:'Oct'},{value:11,label:'Nov'},{value:12,label:'Dec'}];
+
+    return (
+      <div className="tab-content-wrapper">
+        <div className="dashboard-card p-4 mb-4">
+          <div className="section-title">🧾 Reports</div>
+          <div className="section-subtitle">Filter by year, month, salesperson and SKU</div>
+
+          <div className="row mt-3 g-2">
+            <div className="col-md-2">
+              <label className="filter-label">Year</label>
+              <select className="form-select" value={filters.year} onChange={(e) => setFilters(prev => ({...prev, year: e.target.value}))}>
+                {getYearOptions().map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="filter-label">Month</label>
+              <select className="form-select" value={filters.month} onChange={(e) => setFilters(prev => ({...prev, month: e.target.value}))}>
+                {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <div className="col-md-3">
+              <label className="filter-label">Salesperson</label>
+              <select className="form-select" value={filters.salesperson} onChange={(e) => setFilters(prev => ({...prev, salesperson: e.target.value}))}>
+                <option value="">All salesperson</option>
+                {salespersonOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="col-md-5">
+              <label className="filter-label">SKU Filter</label>
+              <select className="form-select" value={filters.sku} onChange={(e) => setFilters(prev => ({...prev, sku: e.target.value}))}>
+                <option value="">All other SKUs</option>
+                <option value="Supermi">Supermi</option>
+              </select>
+              <div className="form-text mt-1">Choose Supermi or all other SKUs (Beef, Chicken, Supamojo, etc.)</div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" onClick={() => computeReport()}>Run Report</button>
+            <button className="btn btn-outline-secondary" onClick={exportReportCSV}>Export CSV</button>
+          </div>
+        </div>
+
+        <div className="dashboard-card p-4">
+          <div className="table-responsive">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Sales person</th>
+                  <th>Vehicle</th>
+                  <th>Monthly target</th>
+                  <th>Monthly achievement</th>
+                  <th>% achievement</th>
+                  <th>Remaining</th>
+                  <th>% remaining</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reportResults.map((r, idx) => (
+                  <tr key={idx}>
+                    <td className="fw-bold">{r.name}</td>
+                    <td>{r.vehicle}</td>
+                    <td>{r.monthlyTarget}</td>
+                    <td>{r.achievement}</td>
+                    <td>{r.pct}%</td>
+                    <td>{r.remaining}</td>
+                    <td>{r.remainingPct}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -2136,6 +2338,13 @@ const AdminDashboard = () => {
             <div className="nav-item-icon">🎯</div>
             <div className="nav-item-text">Targets</div>
           </div>
+          <div 
+            className={`nav-item ${activeTab === 'reports' ? 'active' : ''}`}
+            onClick={() => setActiveTab('reports')}
+          >
+            <div className="nav-item-icon">🧾</div>
+            <div className="nav-item-text">Reports</div>
+          </div>
         </div>
 
         <div className="sidebar-footer">
@@ -2157,20 +2366,23 @@ const AdminDashboard = () => {
       <div className="main-content">
         <div className="content-header">
           <h1 className="content-title">
-            {activeTab === 'overview' && '📈 Overview'}
-            {activeTab === 'map' && '🗺️ Map Analysis'}
-            {activeTab === 'targets' && '🎯 Targets'}
+              {activeTab === 'overview' && '📈 Overview'}
+              {activeTab === 'map' && '🗺️ Map Analysis'}
+              {activeTab === 'targets' && '🎯 Targets'}
+              {activeTab === 'reports' && '🧾 Reports'}
           </h1>
           <p className="content-subtitle">
-            {activeTab === 'overview' && 'Quick insights and pending approvals'}
-            {activeTab === 'map' && 'Geographic distribution of visits and uplifts'}
-            {activeTab === 'targets' && 'Per-user target management'}
+              {activeTab === 'overview' && 'Quick insights and pending approvals'}
+              {activeTab === 'map' && 'Geographic distribution of visits and uplifts'}
+              {activeTab === 'targets' && 'Per-user target management'}
+              {activeTab === 'reports' && 'Filtered SKU reports with export'}
           </p>
         </div>
 
         {activeTab === 'overview' && renderOverviewTab()}
         {activeTab === 'map' && renderMapTab()}
         {activeTab === 'targets' && renderTargetsTab()}
+        {activeTab === 'reports' && renderReportsTab()}
         {activeTab === 'usersetup' && renderUsersTab && renderUsersTab()}
       </div>
 
@@ -2240,6 +2452,7 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+      {/* Admin footer removed per request */}
     </div>
   );
 };

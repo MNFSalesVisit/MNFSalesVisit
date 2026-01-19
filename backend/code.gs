@@ -235,14 +235,15 @@ function ensureTargetsSheet() {
   if (!targetsSheet) {
     targetsSheet = ss.insertSheet(TARGETS_SHEET);
     
-    // Set up headers
-    const headers = [
-      "National ID",
-      "Name",
-      "Daily Target",
-      "Weekly Target",
-      "Monthly Target"
-    ];
+      // Set up headers
+      const headers = [
+        "National ID",
+        "Name",
+        "Daily Target",
+        "Weekly Target",
+        "Monthly Target",
+        "Supermi Monthly Target"
+      ];
     
     targetsSheet.appendRow(headers);
     
@@ -845,7 +846,7 @@ function getSKUAnalysis(params) {
 }
 
 // ========= SET USER TARGETS =========
-function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget) {
+function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget, supermiMonthlyTarget) {
   const sh = ensureTargetsSheet();
   const data = sh.getDataRange().getValues();
   
@@ -863,6 +864,7 @@ function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarg
     sh.getRange(rowIndex, 3).setValue(Number(dailyTarget));
     sh.getRange(rowIndex, 4).setValue(Number(weeklyTarget));
     sh.getRange(rowIndex, 5).setValue(Number(monthlyTarget));
+    sh.getRange(rowIndex, 6).setValue(Number(supermiMonthlyTarget) || 0);
   } else {
     // Add new targets
     sh.appendRow([
@@ -870,7 +872,8 @@ function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarg
       String(name),
       Number(dailyTarget),
       Number(weeklyTarget),
-      Number(monthlyTarget)
+      Number(monthlyTarget),
+      Number(supermiMonthlyTarget) || 0
     ]);
   }
   
@@ -889,7 +892,8 @@ function getUserTargets(nationalID) {
         name: String(data[i][1]),
         dailyTarget: Number(data[i][2]) || 0,
         weeklyTarget: Number(data[i][3]) || 0,
-        monthlyTarget: Number(data[i][4]) || 0
+        monthlyTarget: Number(data[i][4]) || 0,
+        supermiMonthlyTarget: Number(data[i][5]) || 0
       };
     }
   }
@@ -900,26 +904,46 @@ function getUserTargets(nationalID) {
     name: "",
     dailyTarget: 0,
     weeklyTarget: 0,
-    monthlyTarget: 0
+    monthlyTarget: 0,
+    supermiMonthlyTarget: 0
   };
 }
 
 // ========= GET ALL TARGETS (for admin) =========
 function getAllTargets() {
-  const sh = ensureTargetsSheet();
-  const data = sh.getDataRange().getValues();
-  
+  // Build list from Users sheet so admins see all salespeople
+  const ss = SpreadsheetApp.getActive();
+  const usersSheet = ss.getSheetByName(USERS_SHEET);
+
+  if (!usersSheet) {
+    return [];
+  }
+
+  const usersData = usersSheet.getDataRange().getValues();
   const targets = [];
-  for (let i = 1; i < data.length; i++) {
+
+  for (let i = 1; i < usersData.length; i++) {
+    const nationalID = String(usersData[i][0] || "").trim();
+    if (!nationalID) continue;
+
+    const role = String(usersData[i][3] || "").trim().toLowerCase();
+    if (role === "admin") continue; // skip admins
+
+    const name = String(usersData[i][2] || "").trim();
+
+    // getUserTargets will return zeros if no row exists in Targets sheet
+    const t = getUserTargets(nationalID);
+
     targets.push({
-      nationalID: String(data[i][0]),
-      name: String(data[i][1]),
-      dailyTarget: Number(data[i][2]) || 0,
-      weeklyTarget: Number(data[i][3]) || 0,
-      monthlyTarget: Number(data[i][4]) || 0
+      nationalID: nationalID,
+      name: name || t.name || "",
+      dailyTarget: Number(t.dailyTarget) || 0,
+      weeklyTarget: Number(t.weeklyTarget) || 0,
+      monthlyTarget: Number(t.monthlyTarget) || 0,
+      supermiMonthlyTarget: Number(t.supermiMonthlyTarget) || 0
     });
   }
-  
+
   return targets;
 }
 

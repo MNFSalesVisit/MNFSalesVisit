@@ -617,6 +617,16 @@ const SalesApp = () => {
               'Login'
             )}
           </button>
+          {/* Footer on login page */}
+          <div className="mt-4 text-center small text-muted">
+            <div className="mb-1">
+              <a href="#" className="text-decoration-none text-muted">Terms & Conditions</a> | 
+              <a href="#" className="text-decoration-none text-muted ms-1">Privacy Policy</a>
+            </div>
+            <div style={{ fontSize: '11px' }}>
+              © 2025 MNF Sales. All rights reserved.
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -880,33 +890,7 @@ const SalesApp = () => {
                           </div>
                         </div>
                       )}
-                      {uplift.receiptPhoto && uplift.status !== 'Approved' && (
-                        <div style={{ marginTop: 8 }}>
-                          <button
-                            className="btn btn-sm btn-outline-danger"
-                            onClick={async () => {
-                              if (!currentUser) return alert('Not authenticated');
-                              if (!confirm('Delete receipt? This cannot be undone.')) return;
-                              try {
-                                const res = await apiService.deleteUpliftReceipt(uplift.rowIndex, currentUser.name || currentUser.nationalID);
-                                if (res && res.success) {
-                                  alert('Receipt deleted');
-                                  // refresh uplift status
-                                  const uplifts = await apiService.getUserUpliftStatus(currentUser.nationalID);
-                                  setUpliftStatus(uplifts);
-                                } else {
-                                  alert('Delete failed: ' + (res && res.message ? res.message : 'Unknown'));
-                                }
-                              } catch (err) {
-                                console.error(err);
-                                alert('Delete failed');
-                              }
-                            }}
-                          >
-                            Delete Receipt
-                          </button>
-                        </div>
-                      )}
+                      {/* Receipt present: deletion option removed for user side */}
                     </div>
                   ))
                 )}

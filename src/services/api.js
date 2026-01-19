@@ -94,14 +94,15 @@ class ApiService {
     });
   }
 
-  async setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget) {
+  async setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget, supermiMonthlyTarget) {
     return await this.request({
       action: "setUserTargets",
       nationalID,
       name,
       dailyTarget,
       weeklyTarget,
-      monthlyTarget
+      monthlyTarget,
+      supermiMonthlyTarget
     });
   }
 

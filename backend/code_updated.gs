@@ -311,7 +311,8 @@ function ensureTargetsSheet() {
       "Name",
       "Daily Target",
       "Weekly Target",
-      "Monthly Target"
+      "Monthly Target",
+      "Supermi Monthly Target"
     ];
     
     targetsSheet.appendRow(headers);
@@ -965,7 +966,7 @@ function getSKUAnalysis(params) {
 }
 
 // ========= SET USER TARGETS =========
-function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget) {
+function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarget, supermiMonthlyTarget) {
   const sh = ensureTargetsSheet();
   const data = sh.getDataRange().getValues();
   
@@ -983,6 +984,7 @@ function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarg
     sh.getRange(rowIndex, 3).setValue(Number(dailyTarget));
     sh.getRange(rowIndex, 4).setValue(Number(weeklyTarget));
     sh.getRange(rowIndex, 5).setValue(Number(monthlyTarget));
+    sh.getRange(rowIndex, 6).setValue(Number(supermiMonthlyTarget) || 0);
   } else {
     // Add new targets
     sh.appendRow([
@@ -990,7 +992,8 @@ function setUserTargets(nationalID, name, dailyTarget, weeklyTarget, monthlyTarg
       String(name),
       Number(dailyTarget),
       Number(weeklyTarget),
-      Number(monthlyTarget)
+      Number(monthlyTarget),
+      Number(supermiMonthlyTarget) || 0
     ]);
   }
   
@@ -1009,7 +1012,8 @@ function getUserTargets(nationalID) {
         name: String(data[i][1]),
         dailyTarget: Number(data[i][2]) || 0,
         weeklyTarget: Number(data[i][3]) || 0,
-        monthlyTarget: Number(data[i][4]) || 0
+        monthlyTarget: Number(data[i][4]) || 0,
+        supermiMonthlyTarget: Number(data[i][5]) || 0
       };
     }
   }
@@ -1054,7 +1058,8 @@ function getAllTargets() {
       name: name || t.name || "",
       dailyTarget: Number(t.dailyTarget) || 0,
       weeklyTarget: Number(t.weeklyTarget) || 0,
-      monthlyTarget: Number(t.monthlyTarget) || 0
+      monthlyTarget: Number(t.monthlyTarget) || 0,
+      supermiMonthlyTarget: Number(t.supermiMonthlyTarget) || 0
     });
   }
 
@@ -1082,7 +1087,7 @@ function setTargetsForAll(dailyTarget, weeklyTarget, monthlyTarget) {
     if (!nationalID || role === "admin") continue;
 
     // Reuse existing setUserTargets which handles insert/update
-    setUserTargets(nationalID, name, Number(dailyTarget) || 0, Number(weeklyTarget) || 0, Number(monthlyTarget) || 0);
+    setUserTargets(nationalID, name, Number(dailyTarget) || 0, Number(weeklyTarget) || 0, Number(monthlyTarget) || 0, 0);
     updated++;
   }
 
@@ -1190,7 +1195,7 @@ function doPost(e) {
     case "getSKUAnalysis":
       return ContentService.createTextOutput(JSON.stringify(getSKUAnalysis(req.params)));
     case "setUserTargets":
-      return ContentService.createTextOutput(JSON.stringify(setUserTargets(req.nationalID, req.name, req.dailyTarget, req.weeklyTarget, req.monthlyTarget)));
+      return ContentService.createTextOutput(JSON.stringify(setUserTargets(req.nationalID, req.name, req.dailyTarget, req.weeklyTarget, req.monthlyTarget, req.supermiMonthlyTarget)));
     case "getUserTargets":
       return ContentService.createTextOutput(JSON.stringify(getUserTargets(req.nationalID)));
     case "getAllTargets":
