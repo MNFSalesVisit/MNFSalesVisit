@@ -374,7 +374,7 @@ const AdminDashboard = () => {
     };
 
     // Known subregions to always show in the filter
-    const KNOWN_SUBREGIONS = ['Mvita', 'Kilifi', 'Likoni', 'Nyali', 'Kisauni', 'Changamwe', 'Jomvu'];
+    const KNOWN_SUBREGIONS = ['Mvita', 'Kilifi', 'Kwale', 'Likoni', 'Nyali', 'Kisauni', 'Changamwe', 'Jomvu'];
 
     const getSubregionOptions = () => {
       const s = new Set();

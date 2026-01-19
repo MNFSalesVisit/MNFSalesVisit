@@ -198,6 +198,8 @@ export default function UpliftPage() {
               <option value="Likoni">Likoni</option>
               <option value="Changamwe">Changamwe</option>
               <option value="Jomvu">Jomvu</option>
+              <option value="Kilifi">Kilifi</option>
+              <option value="Kwale">Kwale</option>
             </select>
           </div>
 

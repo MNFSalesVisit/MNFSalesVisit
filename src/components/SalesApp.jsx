@@ -977,6 +977,8 @@ const SalesApp = () => {
                   <option>Likoni</option>
                   <option>Changamwe</option>
                   <option>Jomvu</option>
+                  <option>Kilifi</option>
+                  <option>Kwale</option>
                 </select>
 
                 <label className="mt-3">Shop Name</label>
